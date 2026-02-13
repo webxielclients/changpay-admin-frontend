@@ -5,11 +5,11 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { useAuthStore } from '@/store/authStore';
 import { registerSchema } from '@/lib/validations/auth';
-import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { SocialLoginButtons } from '@/components/auth/SocialLoginButtons';
 import { AUTH_ROUTES } from '@/constants/auth';
+import { AuthLayout } from '@/components/auth/AuthLayout';
 import type { RegisterInput } from '@/lib/validations/auth';
 
 export default function RegisterPage() {
@@ -68,38 +68,10 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex">
-      {/* Left Section - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-[#012D32] relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-[#012D32]/90 to-[#012D32]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(255,255,255,0.08),transparent)]" />
-        
-        <div className="relative z-10 flex flex-col justify-between p-12 text-white w-full">
-          <div>
-            <div className="flex items-center space-x-2">
-              <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
-                <span className="text-[#012D32] font-bold text-xl">C</span>
-              </div>
-              <span className="text-xl font-semibold">Changpay</span>
-            </div>
-          </div>
-
-          <div className="max-w-md">
-            <h2 className="text-4xl font-bold mb-4 leading-tight">
-              One platform to manage conversions, payouts, wallets, and compliance in real time.
-            </h2>
-          </div>
-
-          <div className="flex items-center text-sm opacity-70">
-            <span>© 2025 Changpay</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Right Section - Register Form */}
-      <div className="flex-1 flex items-center justify-center p-6 lg:p-12 bg-[#F5F7F9]">
-        <div className="bg-white rounded-3xl p-8 md:p-12 shadow-2xl w-full max-w-[480px]">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+    <AuthLayout>
+      <div className="bg-white rounded-3xl p-8 md:p-12 shadow-2xl w-full max-w-md mx-auto">
+        <div className="max-w-md mx-auto">
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-2">
             Create Your Account
           </h1>
           <p className="text-gray-500 mb-8">
@@ -112,7 +84,7 @@ export default function RegisterPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="space-y-5">
             <Input
               label="Email"
               type="email"
@@ -158,9 +130,10 @@ export default function RegisterPage() {
             />
 
             <button
-              type="submit"
+              onClick={handleSubmit}
+              type="button"
               disabled={isLoading}
-              className="w-full bg-[#009F51] hover:bg-[#008844] text-white font-semibold py-3.5 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-[#009F51]/20"
+              className="w-full bg-[#012D32] hover:bg-[#011a1d] text-white font-semibold py-3.5 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
             >
               {isLoading ? (
                 <span className="flex items-center justify-center">
@@ -174,7 +147,7 @@ export default function RegisterPage() {
                 'Continue'
               )}
             </button>
-          </form>
+          </div>
 
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">
@@ -190,30 +163,30 @@ export default function RegisterPage() {
             onAppleLogin={() => handleSocialLogin('apple')}
           />
 
-          <p className="mt-8 text-center text-sm text-gray-600">
+          <p className="mt-6 text-center text-sm text-gray-600">
             Already have an account?{' '}
             <button
               type="button"
               onClick={() => router.push(AUTH_ROUTES.LOGIN)}
-              className="text-[#009F51] hover:text-[#008844] font-semibold transition-colors"
+              className="text-[#012D32] hover:text-[#011a1d] font-semibold transition-colors"
               disabled={isLoading}
             >
               Sign in now
             </button>
           </p>
 
-          <p className="mt-6 text-xs text-center text-gray-500">
+          <p className="mt-4 text-xs text-center text-gray-500">
             By continuing, you agree to Changpay's{' '}
-            <a href="#" className="text-[#009F51] hover:underline">
+            <a href="#" className="text-[#012D32] hover:underline">
               Terms of Use
             </a>{' '}
             and{' '}
-            <a href="#" className="text-[#009F51] hover:underline">
+            <a href="#" className="text-[#012D32] hover:underline">
               Privacy Policy
             </a>
           </p>
         </div>
       </div>
-    </div>
+    </AuthLayout>
   );
 }
