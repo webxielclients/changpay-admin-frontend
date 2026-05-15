@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 import { AUTH_ROUTES } from '@/constants/auth';
 import Sidebar from '@/components/Sidebar';
+import DashboardHeader from '@/components/DashboardHeader';
 
-// ==================== TYPES ====================
 
 type TabType = 'gift-cards' | 'system-settings';
 
@@ -135,58 +135,8 @@ export default function GiftCardEnginePage() {
         <div className="flex-1 overflow-y-auto">
           {/* Header */}
           <div className="bg-white border-b border-gray-200 px-8 py-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Gift Card Engine</h1>
-                <p className="text-sm text-gray-500 mt-0.5">Manage gift card settings, rates, and system configuration</p>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <button className="relative p-2 hover:bg-gray-100 rounded-xl">
-                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312.665M14.857 17.082a23.848 23.848 0 00-5.454-1.31m5.454 1.31A6.976 6.976 0 0112 17.25c-2.676 0-5.216-.584-7.545-1.668M14.857 17.082L15 17.25m-3 3.75h.01M5.25 6h13.5" />
-                  </svg>
-                  <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold">4</span>
-                </button>
-
-                <div className="flex items-center gap-3 cursor-pointer">
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white text-xs font-bold">OO</div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900 leading-tight">Olalekan. O</p>
-                    <p className="text-xs text-gray-500">Ops Admin</p>
-                  </div>
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-
-            {/* Tabs */}
-            <div className="flex items-center gap-4 border-b border-gray-200 -mb-px">
-              <button
-                onClick={() => setActiveTab('gift-cards')}
-                className={`pb-3 text-sm font-semibold transition-colors relative ${
-                  activeTab === 'gift-cards'
-                    ? 'text-emerald-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-emerald-600'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                Gift Cards
-              </button>
-              <button
-                onClick={() => setActiveTab('system-settings')}
-                className={`pb-3 text-sm font-semibold transition-colors relative ${
-                  activeTab === 'system-settings'
-                    ? 'text-emerald-600 after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-emerald-600'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                Systems Settings
-              </button>
-            </div>
-          </div>
-
+          <DashboardHeader title="Gift Card Engine" subtitle="Manage gift card settings, rates, and system configuration" />
+</div>
           {/* Page Content */}
           <div className="p-8">
             {activeTab === 'gift-cards' && (

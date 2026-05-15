@@ -1,4 +1,3 @@
-// src/lib/validations/auth.ts
 import { z } from 'zod';
 import { AUTH_CONSTANTS, AUTH_ERRORS } from '@/constants/auth';
 

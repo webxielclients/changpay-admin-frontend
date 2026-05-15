@@ -1,4 +1,4 @@
-// /** @type {import('next').NextConfig}
+/** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
@@ -9,6 +9,14 @@ const nextConfig = {
   },
   experimental: {
     optimizePackageImports: ['lucide-react'],
+  },
+  async rewrites() {
+    return [
+      {
+        source: '/api/proxy/:path*',
+        destination: 'https://changpay.cloud/api/admin/:path*',
+      },
+    ];
   },
 }
 

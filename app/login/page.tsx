@@ -1,4 +1,3 @@
-// src/app/(auth)/login/page.tsx
 'use client';
 
 import { useState } from 'react';
@@ -32,7 +31,6 @@ export default function LoginPage() {
       ...prev,
       [name]: type === 'checkbox' ? checked : value,
     }));
-    
     if (fieldErrors[name]) {
       setFieldErrors((prev) => ({ ...prev, [name]: '' }));
     }
@@ -43,13 +41,10 @@ export default function LoginPage() {
     setFieldErrors({});
 
     const validation = loginSchema.safeParse(formData);
-
     if (!validation.success) {
       const errors: Record<string, string> = {};
       validation.error.errors.forEach((err) => {
-        if (err.path[0]) {
-          errors[err.path[0] as string] = err.message;
-        }
+        if (err.path[0]) errors[err.path[0] as string] = err.message;
       });
       setFieldErrors(errors);
       return;
@@ -64,7 +59,6 @@ export default function LoginPage() {
 
   const handleSocialLogin = (provider: 'google' | 'apple') => {
     console.log(`Initiating ${provider} login`);
-    // Implement OAuth flow here
   };
 
   return (
@@ -94,6 +88,7 @@ export default function LoginPage() {
             error={fieldErrors.email}
             disabled={isLoading}
             autoComplete="email"
+            className="text-gray-900 placeholder-gray-400"
           />
 
           <Input
@@ -106,6 +101,7 @@ export default function LoginPage() {
             error={fieldErrors.password}
             disabled={isLoading}
             autoComplete="current-password"
+            className="text-gray-900 placeholder-gray-400"
           />
 
           <div className="flex items-center justify-between">
@@ -139,20 +135,9 @@ export default function LoginPage() {
                 </svg>
                 Processing...
               </span>
-            ) : (
-              'Sign In'
-            )}
+            ) : 'Sign In'}
           </button>
         </form>
-
-        {/* <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-200" />
-          </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="px-4 bg-white text-gray-500">Or continue with</span>
-          </div>
-        </div> */}
 
         <SocialLoginButtons
           onGoogleLogin={() => handleSocialLogin('google')}
@@ -160,7 +145,7 @@ export default function LoginPage() {
         />
 
         <p className="mt-8 text-center text-sm text-gray-600">
-          Don't have an account?{' '}
+          Don&apos;t have an account?{' '}
           <button
             type="button"
             onClick={() => router.push(AUTH_ROUTES.REGISTER)}
@@ -172,14 +157,9 @@ export default function LoginPage() {
         </p>
 
         <p className="mt-6 text-xs text-center text-gray-500">
-          By continuing, you agree to Changpay's{' '}
-          <a href="#" className="text-[#009F51] hover:underline">
-            Terms of Use
-          </a>{' '}
-          and{' '}
-          <a href="#" className="text-[#009F51] hover:underline">
-            Privacy Policy
-          </a>
+          By continuing, you agree to Changpay&apos;s{' '}
+          <a href="#" className="text-[#009F51] hover:underline">Terms of Use</a>{' '}and{' '}
+          <a href="#" className="text-[#009F51] hover:underline">Privacy Policy</a>
         </p>
       </div>
     </AuthLayout>
