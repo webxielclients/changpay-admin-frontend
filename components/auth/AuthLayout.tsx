@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode } from 'react';
+import Image from 'next/image';
 
 interface AuthLayoutProps {
   children: ReactNode;
@@ -12,12 +13,7 @@ export function AuthLayout({ children }: AuthLayoutProps) {
       <div className="w-full max-w-6xl flex flex-col lg:grid lg:grid-cols-2 gap-8 items-center">
 
         <div className="hidden lg:flex flex-col justify-center text-white space-y-6 px-8 xl:px-12">
-          <div className="flex items-center space-x-2 mb-4">
-            <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shrink-0">
-              <span className="text-[#012D32] font-bold text-xl">C</span>
-            </div>
-            <span className="text-2xl font-bold">Changpay</span>
-          </div>
+         <Image src="/Group.svg" alt="Changpay Logo" width={180} height={180} className="mb-6" />
 
           <div className="bg-white rounded-3xl p-12 h-64 flex items-center justify-center">
             <div className="text-center">

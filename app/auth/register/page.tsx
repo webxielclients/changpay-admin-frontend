@@ -8,6 +8,7 @@ import { useAuthStore } from '@/store/authStore';
 import { registerSchema } from '@/lib/validations/auth';
 import { AUTH_ROUTES } from '@/constants/auth';
 import type { RegisterInput } from '@/lib/validations/auth';
+import Image from 'next/image';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -63,12 +64,8 @@ export default function RegisterPage() {
 
         {/* Left panel */}
         <div className="hidden md:flex md:w-1/2 bg-[#012D32] flex-col items-start justify-between p-12">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
-              <span className="text-white font-black text-lg">C</span>
-            </div>
-            <span className="text-white font-bold text-xl">Changpay</span>
-          </div>
+          <Image src="/Group.svg" alt="Changpay Logo" width={180} height={180} className="mb-6" />
+         
           <div>
             <div className="w-16 h-1 bg-emerald-500 rounded-full mb-6" />
             <h2 className="text-white text-3xl font-bold leading-tight mb-4">
