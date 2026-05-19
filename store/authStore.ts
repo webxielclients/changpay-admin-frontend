@@ -1,3 +1,4 @@
+// src/store/authStore.ts
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
@@ -28,7 +29,7 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
-  _hasHydrated: boolean; 
+  _hasHydrated: boolean; // tracks whether persist has loaded from localStorage
 }
 
 interface AuthStore extends AuthState {
@@ -89,7 +90,16 @@ export const useAuthStore = create<AuthStore>()(
     }),
     {
       name: 'changpay_admin_auth',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => {
+        if (typeof window === 'undefined') {
+          return {
+            getItem: () => null,
+            setItem: () => {},
+            removeItem: () => {},
+          };
+        }
+        return localStorage;
+      }),
       partialize: (state) => ({
         user: state.user,
         token: state.token,
@@ -106,9 +116,11 @@ export const useAuthStore = create<AuthStore>()(
         };
       },
       onRehydrateStorage: () => (state) => {
-       
+        // Mark hydration complete — this is the critical flag
+        // Pages wait for this before deciding to redirect
         if (state) {
           state.setHasHydrated(true);
+          // Keep raw token key in sync
           if (state.token && typeof window !== 'undefined') {
             localStorage.setItem('token', state.token);
           }
@@ -118,6 +130,7 @@ export const useAuthStore = create<AuthStore>()(
   )
 );
 
+// Temp store for register → verify email flow
 interface TempAuthStore {
   email: string | null;
   setEmail: (email: string) => void;
