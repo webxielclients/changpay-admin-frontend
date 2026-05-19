@@ -45,7 +45,7 @@ export function middleware(request: NextRequest) {
 
   // Allow access to all other routes
   return NextResponse.next();
-}
+} 
 
 // Configure which routes the middleware should run on
 export const config = {

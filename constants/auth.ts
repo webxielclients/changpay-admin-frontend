@@ -10,6 +10,7 @@ export const AUTH_CONSTANTS = {
 
 export const AUTH_ERRORS = {
   INVALID_EMAIL: 'Please enter a valid email address',
+  INVALID_PIN: "Please enter a valid PIN",
   EMAIL_REQUIRED: 'Email is required',
   PASSWORD_REQUIRED: 'Password is required',
   PASSWORD_TOO_SHORT: `Password must be at least ${AUTH_CONSTANTS.MIN_PASSWORD_LENGTH} characters`,
