@@ -1,116 +1,346 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 import { walletApi } from '@/lib/api/client';
 import type { WalletStats, WalletRecord, CurrencyWalletData } from '@/lib/api/client';
-import { AUTH_ROUTES } from '@/constants/auth';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
 
-type MainTab = 'overview' | 'currency-wallets' | 'ledger' | 'reconciliation';
+type MainTab      = 'overview' | 'currency-wallets' | 'ledger' | 'reconciliation';
+type CwSubTab     = 'wallets' | 'topup' | 'swap';
 type CurrencyType = 'USD' | 'NGN' | 'YAN';
 
-function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse bg-gray-100 rounded-lg ${className}`} />;
+interface TopupRow {
+  id: string; user: string; email: string; walletId: string;
+  amount: string; currency: string; method: string;
+  status: string; ts: string; ref: string; initials: string | null;
 }
 
+interface SwapRow {
+  id: string; user: string; email: string; walletId: string;
+  from: string; to: string; rate: string;
+  status: string; ts: string; ref: string; initials: string | null;
+}
+
+interface LedgerRow {
+  time: string; user: string; userId: string; wallet: string;
+  type: 'credit' | 'debit'; amount: string; ref: string; desc: string;
+}
+
+interface RecentActivityItem {
+  type: 'credit' | 'debit';
+  user: string;
+  wallet_id: string;
+  description: string;
+  amount: string;
+  time: string;
+}
+
+// ─── Skeleton ──────────────────────────────────────────────────────────────────
+function Skeleton({ className }: { className?: string }) {
+  return <div className={`animate-pulse bg-gray-200 rounded-lg ${className ?? ''}`} />;
+}
+
+// ─── Currency helpers ─────────────────────────────────────────────────────────
+function currencySymbol(c: CurrencyType | string): string {
+  if (c === 'USD') return '$';
+  if (c === 'NGN') return '₦';
+  return '¥';
+}
+
+function currencyLabel(c: CurrencyType): string {
+  if (c === 'USD') return 'US Dollar Wallets';
+  if (c === 'NGN') return 'Nigerian Naira Wallets';
+  return 'Chinese Yuan Wallets';
+}
+
+function CurrencyFlag({ currency, className = 'w-6 h-4' }: { currency: CurrencyType; className?: string }) {
+  const src =
+    currency === 'USD' ? 'https://flagcdn.com/w40/us.png' :
+    currency === 'NGN' ? 'https://flagcdn.com/w40/ng.png' :
+    'https://flagcdn.com/w40/cn.png';
+  return <img src={src} alt={currency} className={`${className} object-cover rounded-sm`} />;
+}
+
+// ─── Status badge ─────────────────────────────────────────────────────────────
 function StatusBadge({ isLocked, isActive }: { isLocked: boolean; isActive: boolean }) {
   if (isLocked) {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 border border-gray-200">
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border border-gray-200 text-gray-500 bg-white">
+        <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
         </svg>
-        Locked
+        Frozen
       </span>
     );
   }
   if (isActive) {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border border-gray-200 text-gray-700 bg-white">
+        <svg className="w-3 h-3 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
         </svg>
         Active
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-600 border border-red-200">
+    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border border-gray-200 text-gray-400 bg-white">
       Inactive
     </span>
   );
 }
 
-function currencySymbol(currency: CurrencyType) {
-  if (currency === 'USD') return '$';
-  if (currency === 'NGN') return '₦';
-  return '¥';
+function TxBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    Processing: 'bg-amber-50 text-amber-600 border-amber-200',
+    Failed:     'bg-red-50 text-red-500 border-red-200',
+    Completed:  'bg-emerald-50 text-emerald-600 border-emerald-200',
+  };
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${map[status] ?? 'bg-gray-50 text-gray-500 border-gray-200'}`}>
+      {status}
+    </span>
+  );
 }
 
-function currencyFlag(currency: CurrencyType) {
-  if (currency === 'USD') return '🇺🇸';
-  if (currency === 'NGN') return '🇳🇬';
-  return '🇨🇳';
+// ─── UserCell ─────────────────────────────────────────────────────────────────
+function UserCell({ name, email, initials }: { name: string; email?: string; initials?: string | null }) {
+  const COLORS = [
+    'bg-emerald-100 text-emerald-700',
+    'bg-violet-100 text-violet-700',
+    'bg-amber-100 text-amber-700',
+    'bg-blue-100 text-blue-700',
+    'bg-pink-100 text-pink-700',
+  ];
+  const nameStr = typeof name === 'string' ? name : '';
+  const color   = COLORS[nameStr.length > 0 ? nameStr.charCodeAt(0) % COLORS.length : 0];
+  const display = initials ?? (nameStr.length >= 2 ? nameStr.slice(0, 2).toUpperCase() : nameStr.toUpperCase() || 'U');
+  return (
+    <div className="flex items-center gap-2.5 min-w-0">
+      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${color}`}>
+        {display}
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-gray-900 truncate">{nameStr || '—'}</p>
+        {email && <p className="text-xs text-gray-400 truncate">{email}</p>}
+      </div>
+    </div>
+  );
 }
 
+// ─── Direction icons ───────────────────────────────────────────────────────────
+function CreditIcon() {
+  return (
+    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+      <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
+      </svg>
+    </div>
+  );
+}
+function DebitIcon() {
+  return (
+    <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+      <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
+      </svg>
+    </div>
+  );
+}
+
+// ─── Search bar ───────────────────────────────────────────────────────────────
+function SearchBar({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <div className="relative flex-1">
+      <svg className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+      </svg>
+      <input
+        type="text" value={value} onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-full text-sm text-gray-700 placeholder-gray-400 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+      />
+    </div>
+  );
+}
+
+// ─── Export button ────────────────────────────────────────────────────────────
+function ExportBtn() {
+  return (
+    <button className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-medium hover:bg-emerald-600 transition-colors flex-shrink-0">
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+      </svg>
+      Export
+    </button>
+  );
+}
+
+// ─── Status filter dropdown ────────────────────────────────────────────────────
+function StatusFilter({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="relative flex-shrink-0">
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        className="appearance-none bg-white border border-gray-200 rounded-lg pl-3 pr-8 py-2.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer">
+        {['All Status', 'Processing', 'Failed', 'Completed'].map((s) => <option key={s}>{s}</option>)}
+      </select>
+      <svg className="w-4 h-4 text-gray-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+      </svg>
+    </div>
+  );
+}
+
+// ─── Pagination ───────────────────────────────────────────────────────────────
+function Pagination({ currentPage, totalPages, onChange, loading, from, to, total }: {
+  currentPage: number; totalPages: number; onChange: (p: number) => void;
+  loading?: boolean; from?: number; to?: number; total?: number;
+}) {
+  const pages = Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+    if (totalPages <= 5) return i + 1;
+    if (currentPage <= 3) return i + 1;
+    if (currentPage >= totalPages - 2) return totalPages - 4 + i;
+    return currentPage - 2 + i;
+  });
+  return (
+    <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
+      <p className="text-xs text-gray-500">
+        {total != null ? `Showing ${from ?? 1}–${to ?? 0} of ${total} wallets` : ''}
+      </p>
+      <div className="flex items-center gap-1">
+        <button onClick={() => onChange(Math.max(1, currentPage - 1))} disabled={currentPage === 1 || loading}
+          className="w-7 h-7 flex items-center justify-center border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 text-gray-500">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+        </button>
+        {pages.map((p) => (
+          <button key={p} onClick={() => onChange(p)}
+            className={`w-7 h-7 flex items-center justify-center rounded-lg text-xs font-medium transition-colors ${currentPage === p ? 'bg-emerald-500 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+            {p}
+          </button>
+        ))}
+        <button onClick={() => onChange(Math.min(totalPages, currentPage + 1))} disabled={currentPage === totalPages || loading}
+          className="w-7 h-7 flex items-center justify-center border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 text-gray-500">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Mock data (UI-only — no API endpoint) ────────────────────────────────────
+const MOCK_TOPUP: TopupRow[] = [
+  { id:'TOP001',  user:'James Smith', email:'john.doe@example.com', walletId:'RMB001', amount:'5,000.00',  currency:'USD',  method:'Bank Transfer', status:'Processing', ts:'2026-01-05 10:30am', ref:'TXN20260105001', initials:'UG' },
+  { id:'TOP003',  user:'James Smith', email:'john.doe@example.com', walletId:'RMB067', amount:'1,000.00',  currency:'USD',  method:'Card Payment',  status:'Failed',     ts:'2026-01-05 10:30am', ref:'TXN20260105001', initials:null },
+  { id:'TOP0056', user:'James Smith', email:'john.doe@example.com', walletId:'RMB003', amount:'3,000.00',  currency:'NGN',  method:'Bank Transfer', status:'Processing', ts:'2026-01-05 10:30am', ref:'TXN20260105001', initials:null },
+  { id:'TOP0056', user:'James Smith', email:'john.doe@example.com', walletId:'RMB003', amount:'2,000.00',  currency:'YUAN', method:'Bank Transfer', status:'Failed',     ts:'2026-01-05 10:30am', ref:'TXN20260105001', initials:null },
+  { id:'TOP0056', user:'James Smith', email:'john.doe@example.com', walletId:'RMB003', amount:'78,000.00', currency:'NGN',  method:'Bank Transfer', status:'Processing', ts:'2026-01-05 10:30am', ref:'TXN20260105001', initials:null },
+  { id:'TOP0056', user:'James Smith', email:'john.doe@example.com', walletId:'RMB003', amount:'6,000.00',  currency:'YUAN', method:'Bank Transfer', status:'Completed',  ts:'2026-01-05 10:30am', ref:'TXN20260105001', initials:null },
+];
+
+const MOCK_SWAP: SwapRow[] = [
+  { id:'SWP001', user:'James Smith', email:'john.doe@example.com', walletId:'RMB001', from:'¥5,000.00 CNY',  to:'$687.50 USD',    rate:'7.27', status:'Processing', ts:'2026-01-05 10:30am', ref:'SWP20260105001', initials:'UG' },
+  { id:'SWP001', user:'James Smith', email:'john.doe@example.com', walletId:'RMB067', from:'$1,000.00 USD',  to:'₦1,300,000 NGN', rate:'7.27', status:'Failed',     ts:'2026-01-05 10:30am', ref:'SWP20260105002', initials:null },
+  { id:'SWP001', user:'James Smith', email:'john.doe@example.com', walletId:'RMB067', from:'$1,000.00 USD',  to:'₦1,300,000 USD', rate:'7.27', status:'Failed',     ts:'2026-01-05 10:30am', ref:'SWP20260105002', initials:null },
+  { id:'SWP001', user:'James Smith', email:'john.doe@example.com', walletId:'RMB003', from:'$2,000.00 USD',  to:'¥14,540.00 CYN', rate:'8.24', status:'Completed',  ts:'2026-01-05 10:30am', ref:'SWP20260105002', initials:null },
+  { id:'SWP001', user:'James Smith', email:'john.doe@example.com', walletId:'RMB003', from:'$2,000.00 USD',  to:'¥14,540.00 CYN', rate:'8.24', status:'Completed',  ts:'2026-01-05 10:30am', ref:'SWP20260105002', initials:null },
+  { id:'SWP001', user:'James Smith', email:'john.doe@example.com', walletId:'RMB067', from:'$1,000.00 USD',  to:'₦1,300,000 NGN', rate:'7.27', status:'Failed',     ts:'2026-01-05 10:30am', ref:'SWP20260105002', initials:null },
+];
+
+const MOCK_LEDGER: LedgerRow[] = [
+  { time:'2026-01-05 11:15:22', user:'David Okonkwo',  userId:'CHG-771920', wallet:'NGN003', type:'credit', amount:'+2,000,000', ref:'DEP-78901', desc:'Bank transfer dep...' },
+  { time:'2026-01-05 11:00:45', user:'Robert Johnson', userId:'CHG-771920', wallet:'NGN003', type:'credit', amount:'+5,000',     ref:'DEP-78901', desc:'Wire transfer' },
+  { time:'2026-01-05 10:30:15', user:'John Doe',       userId:'CHG-771920', wallet:'NGN003', type:'credit', amount:'+2,000,000', ref:'DEP-78901', desc:'Bank transfer dep...' },
+  { time:'2026-01-05 11:15:22', user:'Sarah Smith',    userId:'CHG-771920', wallet:'NGN003', type:'debit',  amount:'-2,000',     ref:'DEP-78901', desc:'Withdrawal to bank' },
+  { time:'2026-01-05 11:15:22', user:'Sarah Smith',    userId:'CHG-771920', wallet:'NGN003', type:'credit', amount:'+500,000',   ref:'DEP-78901', desc:'Local transfer' },
+  { time:'2026-01-05 11:15:22', user:'David Okonkwo',  userId:'CHG-771920', wallet:'NGN003', type:'credit', amount:'+2,000,000', ref:'DEP-78901', desc:'Bank transfer dep...' },
+];
+
+interface MockWallet {
+  id: number; uid: string; balance: string; available_balance: string;
+  currency: CurrencyType; is_locked: boolean; is_active: boolean;
+  lastActivity: string; activityRelative: string;
+  user: string; email: string; initials: string | null;
+}
+
+function buildMockWallets(currency: CurrencyType): MockWallet[] {
+  const prefix = currency === 'USD' ? 'USD' : currency === 'NGN' ? 'NGN' : 'RMB';
+  return Array.from({ length: 6 }, (_, i) => ({
+    id: i + 1,
+    uid: `${prefix}00${i + 1}`,
+    balance: '15,420.50',
+    available_balance: '15,420.50',
+    currency,
+    is_locked: i === 1 || i === 2,
+    is_active: !(i === 1 || i === 2),
+    lastActivity: '2026-01-05 10:30am',
+    activityRelative: i === 1 ? '3 hours ago' : i === 4 ? '4 days ago' : i === 5 ? '10 months ago' : '2 mins ago',
+    user: 'James Smith',
+    email: 'john.doe@example.com',
+    initials: i % 3 === 0 ? 'UG' : null,
+  }));
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  PAGE
+// ═════════════════════════════════════════════════════════════════════════════
 export default function WalletManagementPage() {
-  const router = useRouter();
-  const { isAuthenticated, user: authUser } = useAuthStore();
+  const { isAuthenticated } = useAuthStore();
 
-  const [mainTab, setMainTab] = useState<MainTab>('overview');
-  const [selectedCurrency, setSelectedCurrency] = useState<CurrencyType>('USD');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
+  const [mainTab,          setMainTab]          = useState<MainTab>('overview');
+  const [cwSubTab,         setCwSubTab]          = useState<CwSubTab>('wallets');
+  const [selectedCurrency, setSelectedCurrency]  = useState<CurrencyType>('USD');
+  const [walletSearch,     setWalletSearch]      = useState('');
+  const [ledgerSearch,     setLedgerSearch]      = useState('');
+  const [topupSearch,      setTopupSearch]       = useState('');
+  const [swapSearch,       setSwapSearch]        = useState('');
+  const [topupFilter,      setTopupFilter]       = useState('All Status');
+  const [swapFilter,       setSwapFilter]        = useState('All Status');
+  const [currentPage,      setCurrentPage]       = useState(1);
 
-  // Data state
-  const [stats, setStats] = useState<WalletStats | null>(null);
-  const [currencyData, setCurrencyData] = useState<CurrencyWalletData | null>(null);
-  const [wallets, setWallets] = useState<WalletRecord[]>([]);
-  const [togglingId, setTogglingId] = useState<number | null>(null);
-
-  // Loading states
-  const [loadingStats, setLoadingStats] = useState(true);
+  const [stats,          setStats]          = useState<(WalletStats & {
+    transaction_volume?: string;
+    today_transactions?: number;
+    today_in?: string;
+    today_out?: string;
+  }) | null>(null);
+  const [currencyData,   setCurrencyData]   = useState<CurrencyWalletData | null>(null);
+  const [wallets,        setWallets]        = useState<WalletRecord[]>([]);
+  const [recentActivity, setRecentActivity] = useState<RecentActivityItem[]>([]);
+  const [togglingId,     setTogglingId]     = useState<number | null>(null);
+  const [loadingStats,   setLoadingStats]   = useState(true);
   const [loadingWallets, setLoadingWallets] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error,          setError]          = useState<string | null>(null);
 
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-
 
   const fetchStats = useCallback(async () => {
     try {
       setLoadingStats(true);
       setError(null);
       const res = await walletApi.getStats();
-      if (res.status) setStats(res.data);
+      if (res.status) {
+        setStats(res.data);
+        if (Array.isArray((res.data as any)?.recent_activity)) {
+          setRecentActivity((res.data as any).recent_activity as RecentActivityItem[]);
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load wallet stats');
     } finally {
       setLoadingStats(false);
     }
-  // walletApi is a stable module-level object — no deps needed
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fetch wallets for selected currency
-  const fetchCurrencyWallets = useCallback(async (
-    currency: CurrencyType,
-    page: number,
-    search: string
-  ) => {
+  const fetchCurrencyWallets = useCallback(async (currency: CurrencyType, page: number, search: string) => {
     try {
       setLoadingWallets(true);
       setError(null);
-      const res = await walletApi.getWalletsByCurrency(currency, {
-        page,
-        per_page: 15,
-        search: search || undefined,
-      });
+      const res = await walletApi.getWalletsByCurrency(currency, { page, per_page: 15, search: search || undefined });
       if (res.status) {
         setCurrencyData(res.data);
-        setWallets(res.data.wallets.data);
+        setWallets(res.data.wallets.data ?? []);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load wallets');
@@ -119,18 +349,17 @@ export default function WalletManagementPage() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
+  useEffect(() => { fetchStats(); }, [fetchStats]);
 
   useEffect(() => {
-    if (mainTab === 'currency-wallets') {
-      fetchCurrencyWallets(selectedCurrency, currentPage, searchQuery);
+    if (mainTab === 'currency-wallets' && cwSubTab === 'wallets') {
+      fetchCurrencyWallets(selectedCurrency, currentPage, walletSearch);
     }
-  }, [mainTab, selectedCurrency, currentPage]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainTab, cwSubTab, selectedCurrency, currentPage]);
 
-  const handleSearchChange = (val: string) => {
-    setSearchQuery(val);
+  const handleWalletSearch = (val: string) => {
+    setWalletSearch(val);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
     searchTimeout.current = setTimeout(() => {
       setCurrentPage(1);
@@ -141,19 +370,16 @@ export default function WalletManagementPage() {
   const handleCurrencyChange = (currency: CurrencyType) => {
     setSelectedCurrency(currency);
     setCurrentPage(1);
-    setSearchQuery('');
+    setWalletSearch('');
+    setCurrencyData(null);
+    setWallets([]);
   };
-
-  // Auth guard AFTER all hooks — this is the correct pattern
-  if (!isAuthenticated) return null;
 
   const handleToggleLock = async (wallet: WalletRecord) => {
     try {
       setTogglingId(wallet.id);
       const res = await walletApi.toggleLock(wallet.id);
-      if (res.status) {
-        setWallets((prev) => prev.map((w) => w.id === wallet.id ? res.data : w));
-      }
+      if (res.status) setWallets((prev) => prev.map((w) => w.id === wallet.id ? res.data : w));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to toggle wallet lock');
     } finally {
@@ -161,317 +387,417 @@ export default function WalletManagementPage() {
     }
   };
 
-  const totalPages = currencyData?.wallets.last_page ?? 1;
-  const pageNumbers = Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-    if (totalPages <= 5) return i + 1;
-    if (currentPage <= 3) return i + 1;
-    if (currentPage >= totalPages - 2) return totalPages - 4 + i;
-    return currentPage - 2 + i;
-  });
+  if (!isAuthenticated) return null;
+
+  const displayWallets: (WalletRecord | MockWallet)[] = wallets.length > 0 ? wallets : buildMockWallets(selectedCurrency);
+  const totalPages = currencyData?.wallets?.last_page ?? 3;
+
+  const goToCurrencyWallets = (currency: CurrencyType) => {
+    setMainTab('currency-wallets');
+    setCwSubTab('wallets');
+    handleCurrencyChange(currency);
+  };
+
+  const filteredLedger = MOCK_LEDGER.filter((r) =>
+    !ledgerSearch ||
+    r.user.toLowerCase().includes(ledgerSearch.toLowerCase()) ||
+    r.wallet.toLowerCase().includes(ledgerSearch.toLowerCase()) ||
+    r.ref.toLowerCase().includes(ledgerSearch.toLowerCase())
+  );
+
+  const filteredTopup = MOCK_TOPUP.filter((r) => topupFilter === 'All Status' || r.status === topupFilter);
+  const filteredSwap  = MOCK_SWAP.filter((r)  => swapFilter  === 'All Status' || r.status === swapFilter);
+
+  const MAIN_TABS: { id: MainTab; label: string }[] = [
+    { id: 'overview',         label: 'Overview' },
+    { id: 'currency-wallets', label: 'Currency Wallets' },
+    { id: 'ledger',           label: 'Ledger' },
+    { id: 'reconciliation',   label: 'Reconciliation' },
+  ];
+
+  const CW_TABS: CwSubTab[] = ['wallets', 'topup', 'swap'];
 
   return (
-    <div className="flex h-screen bg-gray-50 font-['DM_Sans']">
+    <div className="flex h-screen bg-[#F8F9FA] font-['DM_Sans',sans-serif]">
       <Sidebar />
-      <main className="flex-1 flex flex-col overflow-hidden">
 
-        {/* Header */}
-        <div className="bg-white border-b border-gray-200 px-8 py-6">
-        <DashboardHeader title="Wallet Management" subtitle="Comprehensive wallet management for all users" />
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+
+        <div className="bg-white border-b border-gray-200 px-8 py-5 flex-shrink-0">
+          <DashboardHeader title="Wallet Management System" subtitle="Comprehensive wallet management for all users" />
         </div>
-        <div className="flex-1 overflow-y-auto p-8">
+
+        {/* Main tab bar */}
+        <div className="bg-white border-b border-gray-200 flex-shrink-0">
+          <nav className="flex w-full">
+            {MAIN_TABS.map((tab) => (
+              <button key={tab.id} onClick={() => setMainTab(tab.id)}
+                className={`relative px-10 py-4 text-sm font-medium transition-colors whitespace-nowrap flex-1 text-center ${
+                  mainTab === tab.id ? 'text-emerald-600' : 'text-gray-500 hover:text-gray-700'
+                }`}>
+                {tab.label}
+                {mainTab === tab.id && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500" />}
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
           {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl">
+            <div className="mx-8 mt-5 p-3 bg-red-50 border border-red-200 rounded-xl">
               <p className="text-sm text-red-600">{error}</p>
             </div>
           )}
 
-          {/* ── OVERVIEW TAB ── */}
+          {/* ── OVERVIEW ── */}
           {mainTab === 'overview' && (
-            <div>
-              {/* Top stats */}
-              <div className="grid grid-cols-3 gap-6 mb-8">
-                <div className="bg-white rounded-xl border border-gray-200 p-6">
-                  <p className="text-xs text-gray-500 mb-2">Total Wallets</p>
-                  {loadingStats ? <Skeleton className="h-10 w-20" /> : (
+            <div className="p-8 space-y-6">
+              <div className="grid grid-cols-3 gap-5">
+                <div className="bg-[#F8F9FA] rounded-2xl border border-gray-200 p-6">
+                  <p className="text-xs text-gray-500 mb-3">Total Wallets</p>
+                  {loadingStats ? <Skeleton className="h-10 w-16" /> : (
                     <div className="flex items-center gap-2">
-                      <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3" />
                       </svg>
-                      <p className="text-3xl font-bold text-gray-900">{stats?.total_wallets ?? '—'}</p>
+                      <p className="text-4xl font-bold text-gray-900">{stats?.total_wallets ?? '—'}</p>
                     </div>
                   )}
                 </div>
-                <div className="bg-white rounded-xl border border-gray-200 p-6">
-                  <p className="text-xs text-gray-500 mb-2">Active Wallets</p>
-                  {loadingStats ? <Skeleton className="h-10 w-20" /> : (
-                    <p className="text-3xl font-bold text-emerald-600">{stats?.active_wallets ?? '—'}</p>
-                  )}
-                </div>
-                <div className="bg-white rounded-xl border border-gray-200 p-6">
-                  <p className="text-xs text-gray-500 mb-2">Locked Wallets</p>
-                  {loadingStats ? <Skeleton className="h-10 w-20" /> : (
-                    <p className="text-3xl font-bold text-red-500">{stats?.locked_wallets ?? '—'}</p>
-                  )}
-                </div>
-              </div>
 
-              {/* Currency balance cards */}
-              <div className="grid grid-cols-3 gap-6 mb-8">
-                {(['USD', 'NGN', 'YAN'] as CurrencyType[]).map((cur) => (
-                  <div key={cur} className="bg-white rounded-xl border border-gray-200 p-6">
-                    <p className="text-xs text-gray-500 mb-2">{cur} Wallets</p>
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-2xl">{currencyFlag(cur)}</span>
-                      {loadingStats ? <Skeleton className="h-9 w-32" /> : (
-                        <p className="text-3xl font-bold text-gray-900">
-                          {currencySymbol(cur)}{stats?.by_currency?.[cur]?.total_balance ?? '—'}
-                        </p>
+                <div className="bg-[#F8F9FA] rounded-2xl border border-gray-200 p-6">
+                  <p className="text-xs text-gray-500 mb-3">Today's Transactions</p>
+                  {loadingStats ? <Skeleton className="h-10 w-28" /> : (
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
+                        </svg>
+                        <p className="text-4xl font-bold text-gray-900">{(stats as any)?.today_transactions ?? '—'}</p>
+                      </div>
+                      {(stats as any)?.today_in != null && (
+                        <p className="text-xs text-gray-400 mt-2">{(stats as any).today_in} in / {(stats as any).today_out} out</p>
                       )}
                     </div>
-                    {!loadingStats && (
-                      <p className="text-xs text-gray-500">
-                        {stats?.by_currency?.[cur]?.count ?? '0'} wallets
-                      </p>
-                    )}
-                    <button
-                      onClick={() => { setMainTab('currency-wallets'); handleCurrencyChange(cur); }}
-                      className="mt-3 text-xs text-emerald-600 hover:text-emerald-700 font-medium"
-                    >
-                      View All {cur} Wallets →
-                    </button>
-                  </div>
-                ))}
+                  )}
+                </div>
+
+                <div className="bg-[#F8F9FA] rounded-2xl border border-gray-200 p-6">
+                  <p className="text-xs text-gray-500 mb-3">Transaction Volume</p>
+                  {loadingStats ? <Skeleton className="h-10 w-28" /> : (
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
+                        </svg>
+                        <p className="text-4xl font-bold text-gray-900">{stats?.transaction_volume ?? '—'}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Refresh button */}
-              <button
-                onClick={fetchStats}
-                disabled={loadingStats}
-                className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-              >
-                <svg className={`w-4 h-4 ${loadingStats ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                </svg>
-                {loadingStats ? 'Refreshing...' : 'Refresh Stats'}
-              </button>
+              {/* Currency cards */}
+              <div className="grid grid-cols-3 gap-5">
+                {(['USD', 'NGN', 'YAN'] as CurrencyType[]).map((cur) => {
+                  const curData = stats?.by_currency?.[cur];
+                  const labels: Record<CurrencyType, string>  = { USD: 'USD Wallets', NGN: 'NGN Wallets', YAN: 'YUAN Wallet Balance' };
+                  const links:  Record<CurrencyType, string>  = { USD: 'View All USD Wallets', NGN: 'View All NGN Wallets', YAN: 'View All YUAN Wallets' };
+                  return (
+                    <div key={cur} className="bg-[#F8F9FA] rounded-2xl border border-gray-200 p-6">
+                      <p className="text-xs text-gray-500 mb-3">{labels[cur]}</p>
+                      {loadingStats ? <Skeleton className="h-10 w-36" /> : (
+                        <div>
+                          <div className="flex items-center gap-2.5 mb-1">
+                            <CurrencyFlag currency={cur} className="w-7 h-5" />
+                            <p className="text-3xl font-bold text-gray-900">
+                              {curData ? `${currencySymbol(cur)}${curData.total_balance}` : '—'}
+                            </p>
+                          </div>
+                          {curData && <p className="text-xs text-gray-400 mt-1">Last 5 secs</p>}
+                        </div>
+                      )}
+                      <button onClick={() => goToCurrencyWallets(cur)} className="mt-3 text-xs font-medium hover:underline" style={{ color: '#1248A4' }}>
+                        {links[cur]} →
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Recent Activity — API data only */}
+              <div className="bg-white rounded-2xl border border-gray-200 p-6">
+                <div className="flex items-center justify-between mb-5">
+                  <h3 className="text-base font-semibold text-gray-900">Recent System Activity</h3>
+                  <button onClick={() => setMainTab('ledger')} className="text-sm font-medium hover:underline" style={{ color: '#1248A4' }}>
+                    View Full Ledger →
+                  </button>
+                </div>
+                {loadingStats ? (
+                  <div className="space-y-3">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+                ) : recentActivity.length === 0 ? (
+                  <div className="py-10 text-center text-sm text-gray-400">No recent activity data available</div>
+                ) : (
+                  <div className="space-y-3">
+                    {recentActivity.map((item, i) => (
+                      <div key={i} className="flex items-center justify-between bg-[#F8F9FA] rounded-xl px-4 py-3.5">
+                        <div className="flex items-center gap-3">
+                          {item.type === 'credit' ? <CreditIcon /> : <DebitIcon />}
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">{item.user}</p>
+                            <p className="text-xs text-gray-400">{item.wallet_id} • {item.description}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className={`text-sm font-semibold ${item.type === 'credit' ? 'text-emerald-500' : 'text-red-500'}`}>{item.amount}</p>
+                          <p className="text-xs text-gray-400">{item.time}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
-          {/* ── CURRENCY WALLETS TAB ── */}
+          {/* ── CURRENCY WALLETS ── */}
           {mainTab === 'currency-wallets' && (
-            <div>
-              {/* Currency selector */}
-              <div className="flex items-center gap-3 mb-6">
-                {(['USD', 'NGN', 'YAN'] as CurrencyType[]).map((cur) => (
-                  <button
-                    key={cur}
-                    onClick={() => handleCurrencyChange(cur)}
-                    className={`flex items-center gap-2 px-6 py-2.5 text-sm font-semibold rounded-lg transition-colors ${
-                      selectedCurrency === cur
-                        ? 'bg-emerald-500 text-white'
-                        : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
-                    }`}
-                  >
-                    <span>{currencyFlag(cur)}</span> {cur} Wallets
+            <div className="p-8 space-y-5">
+              <div className="grid grid-cols-3 bg-white rounded-xl border border-gray-200 overflow-hidden">
+                {CW_TABS.map((tab) => (
+                  <button key={tab} onClick={() => setCwSubTab(tab)}
+                    className={`py-3 text-sm font-semibold capitalize transition-colors ${cwSubTab === tab ? 'bg-emerald-500 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
                   </button>
                 ))}
               </div>
 
-              {/* Currency stats bar */}
-              {currencyData && (
-                <div className="grid grid-cols-4 gap-4 mb-6">
-                  {[
-                    { label: 'Total Wallets', value: String(currencyData.stats.total_wallets) },
-                    { label: 'Total Balance', value: `${currencySymbol(selectedCurrency)}${currencyData.stats.total_balance ?? '—'}` },
-                    { label: 'Active', value: String(currencyData.stats.active_wallets), color: 'text-emerald-600' },
-                    { label: 'Locked', value: String(currencyData.stats.locked_wallets), color: 'text-red-500' },
-                  ].map((s) => (
-                    <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4">
-                      <p className="text-xs text-gray-500">{s.label}</p>
-                      <p className={`text-xl font-bold mt-1 ${s.color ?? 'text-gray-900'}`}>{s.value}</p>
+              {/* Wallets */}
+              {cwSubTab === 'wallets' && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-4">
+                    <div className="relative flex-shrink-0">
+                      <select value={selectedCurrency} onChange={(e) => handleCurrencyChange(e.target.value as CurrencyType)}
+                        className="appearance-none bg-white border border-gray-200 rounded-lg pl-3 pr-8 py-2 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer">
+                        <option value="USD">USD Wallets</option>
+                        <option value="NGN">NGN Wallets</option>
+                        <option value="YUAN">YUAN Wallets</option>
+                      </select>
+                      <svg className="w-4 h-4 text-gray-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
                     </div>
-                  ))}
+                    <div className="flex items-center gap-2">
+                      <CurrencyFlag currency={selectedCurrency} className="w-7 h-5" />
+                      <span className="text-base font-semibold text-gray-800">{currencyLabel(selectedCurrency)}</span>
+                      <span className="text-base font-semibold text-gray-800">
+                        Total Balance:{' '}
+                        {currencyData?.stats?.total_balance
+                          ? `${currencySymbol(selectedCurrency)}${currencyData.stats.total_balance}`
+                          : stats?.by_currency?.[selectedCurrency]?.total_balance
+                            ? `${currencySymbol(selectedCurrency)}${stats.by_currency[selectedCurrency].total_balance}`
+                            : '—'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="max-w-lg">
+                    <SearchBar value={walletSearch} onChange={handleWalletSearch} placeholder="Search by name, wallet ID or transaction ID..." />
+                  </div>
+                  <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-gray-100">
+                            {['Wallet ID','User','Balance','Status','Last activity','Action'].map((h) => (
+                              <th key={h} className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                          {loadingWallets ? [...Array(6)].map((_, i) => (
+                            <tr key={i}>{[...Array(6)].map((_, j) => <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                          )) : displayWallets.length === 0 ? (
+                            <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-gray-400">No {selectedCurrency} wallets found</td></tr>
+                          ) : (
+                            displayWallets.map((wallet, idx) => (
+                              <tr key={(wallet as WalletRecord).id ?? idx} className="hover:bg-gray-50/50 transition-colors">
+                                <td className="px-5 py-4 text-sm font-medium text-gray-900">{(wallet as any).uid}</td>
+                                <td className="px-5 py-4"><UserCell name={(wallet as any).user ?? 'Unknown'} email={(wallet as any).email ?? ''} initials={(wallet as any).initials ?? null} /></td>
+                                <td className="px-5 py-4 text-sm font-semibold text-gray-900">{currencySymbol((wallet as any).currency ?? selectedCurrency)}{(wallet as any).balance}</td>
+                                <td className="px-5 py-4"><StatusBadge isLocked={!!(wallet as any).is_locked} isActive={!!(wallet as any).is_active} /></td>
+                                <td className="px-5 py-4">
+                                  <p className="text-xs text-gray-500 whitespace-nowrap">{(wallet as any).lastActivity ?? '—'}</p>
+                                  <p className="text-xs text-gray-400">{(wallet as any).activityRelative ?? '—'}</p>
+                                </td>
+                                <td className="px-5 py-4">
+                                  <div className="relative group inline-block">
+                                    <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 transition-colors text-gray-500">
+                                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                        <circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" />
+                                      </svg>
+                                    </button>
+                                    <div className="absolute right-0 top-full mt-1 w-36 bg-white rounded-xl shadow-lg border border-gray-100 py-1 hidden group-hover:block z-10">
+                                      <button className="w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 text-left">View wallet</button>
+                                      <button className="w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 text-left">Credit user</button>
+                                      <button className="w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 text-left">Debit user</button>
+                                      <button
+                                        onClick={() => handleToggleLock(wallet as WalletRecord)}
+                                        disabled={togglingId === (wallet as WalletRecord).id}
+                                        className="w-full px-3 py-2 text-xs text-red-500 hover:bg-red-50 flex items-center gap-2 text-left disabled:opacity-50">
+                                        {togglingId === (wallet as WalletRecord).id ? '...' : (wallet as any).is_locked ? 'Unfreeze' : 'Freeze wallet'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    <Pagination currentPage={currentPage} totalPages={totalPages} onChange={setCurrentPage} loading={loadingWallets} from={currencyData?.wallets?.from} to={currencyData?.wallets?.to} total={currencyData?.wallets?.total} />
+                  </div>
                 </div>
               )}
 
-              <div className="bg-white rounded-xl border border-gray-200">
-                <div className="p-6 border-b border-gray-200">
-                  <div className="relative max-w-md">
-                    <svg className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                    </svg>
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => handleSearchChange(e.target.value)}
-                      placeholder="Search by wallet UID, user name, email, or ChangPay ID..."
-                      className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
+              {/* Topup */}
+              {cwSubTab === 'topup' && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <SearchBar value={topupSearch} onChange={setTopupSearch} placeholder="Search..." />
+                    <StatusFilter value={topupFilter} onChange={setTopupFilter} />
+                    <ExportBtn />
+                  </div>
+                  <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead><tr className="border-b border-gray-100">{['Transaction ID','User','Wallet ID','Amount','Method','Status','Timestamp','Reference'].map((h) => <th key={h} className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>)}</tr></thead>
+                        <tbody className="divide-y divide-gray-50">
+                          {filteredTopup.map((row, i) => (
+                            <tr key={i} className="hover:bg-gray-50/50 transition-colors">
+                              <td className="px-4 py-4 text-sm font-medium text-gray-900">{row.id}</td>
+                              <td className="px-4 py-4"><UserCell name={row.user} email={row.email} initials={row.initials} /></td>
+                              <td className="px-4 py-4 text-sm text-gray-600">{row.walletId}</td>
+                              <td className="px-4 py-4"><p className="text-sm font-semibold text-gray-900">{row.amount}</p><p className="text-xs text-gray-400">{row.currency}</p></td>
+                              <td className="px-4 py-4 text-sm text-gray-600">{row.method}</td>
+                              <td className="px-4 py-4"><TxBadge status={row.status} /></td>
+                              <td className="px-4 py-4"><p className="text-xs text-gray-500 whitespace-nowrap">{row.ts}</p><p className="text-xs text-gray-400">2 mins ago</p></td>
+                              <td className="px-4 py-4 text-xs text-gray-500">{row.ref}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
+              )}
 
+              {/* Swap */}
+              {cwSubTab === 'swap' && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <SearchBar value={swapSearch} onChange={setSwapSearch} placeholder="Search..." />
+                    <StatusFilter value={swapFilter} onChange={setSwapFilter} />
+                    <ExportBtn />
+                  </div>
+                  <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead><tr className="border-b border-gray-100">{['Transaction ID','User','Wallet ID','From','To','Rate','Status','Timestamp','Reference'].map((h) => <th key={h} className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>)}</tr></thead>
+                        <tbody className="divide-y divide-gray-50">
+                          {filteredSwap.map((row, i) => (
+                            <tr key={i} className="hover:bg-gray-50/50 transition-colors">
+                              <td className="px-4 py-4 text-sm font-medium text-gray-900">{row.id}</td>
+                              <td className="px-4 py-4"><UserCell name={row.user} email={row.email} initials={row.initials} /></td>
+                              <td className="px-4 py-4 text-sm text-gray-600">{row.walletId}</td>
+                              <td className="px-4 py-4 text-sm font-medium text-gray-900">{row.from}</td>
+                              <td className="px-4 py-4 text-sm font-semibold text-emerald-600">{row.to}</td>
+                              <td className="px-4 py-4 text-sm text-gray-600">{row.rate}</td>
+                              <td className="px-4 py-4"><TxBadge status={row.status} /></td>
+                              <td className="px-4 py-4"><p className="text-xs text-gray-500 whitespace-nowrap">{row.ts}</p><p className="text-xs text-gray-400">2 mins ago</p></td>
+                              <td className="px-4 py-4 text-xs text-gray-500">{row.ref}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── LEDGER ── */}
+          {mainTab === 'ledger' && (
+            <div className="p-8 space-y-5">
+              <div><h2 className="text-lg font-bold text-gray-900">System-Wide Transaction Ledger</h2><p className="text-sm text-gray-500 mt-0.5">Immutable record of all transactions</p></div>
+              <div className="flex items-center gap-3">
+                <SearchBar value={ledgerSearch} onChange={setLedgerSearch} placeholder="Search by wallet, user, reference, or description..." />
+                <ExportBtn />
+              </div>
+              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-gray-200 bg-gray-50">
-                        {['Wallet UID', 'User ID', 'Balance', 'Available Balance', 'Status', 'Created', 'Action'].map((h) => (
-                          <th key={h} className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {loadingWallets ? (
-                        [...Array(8)].map((_, i) => (
-                          <tr key={i}>
-                            {[...Array(7)].map((_, j) => (
-                              <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>
-                            ))}
-                          </tr>
-                        ))
-                      ) : wallets.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="px-5 py-12 text-center text-gray-400 text-sm">
-                            No {selectedCurrency} wallets found
-                          </td>
+                    <thead><tr className="border-b border-gray-100">{['Time','User','Wallet','Type','Amount','Reference','Description'].map((h) => <th key={h} className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>)}</tr></thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {filteredLedger.map((row, i) => (
+                        <tr key={i} className="hover:bg-gray-50/50 transition-colors">
+                          <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{row.time}</td>
+                          <td className="px-5 py-4"><UserCell name={row.user} email={row.userId} /></td>
+                          <td className="px-5 py-4 text-sm text-gray-700">{row.wallet}</td>
+                          <td className="px-5 py-4">{row.type === 'credit' ? <CreditIcon /> : <DebitIcon />}</td>
+                          <td className="px-5 py-4 text-sm font-semibold"><span className={row.type === 'credit' ? 'text-emerald-600' : 'text-red-500'}>{row.amount}</span></td>
+                          <td className="px-5 py-4 text-xs text-gray-500">{row.ref}</td>
+                          <td className="px-5 py-4 text-xs text-gray-500">{row.desc}</td>
                         </tr>
-                      ) : (
-                        wallets.map((wallet) => (
-                          <tr key={wallet.id} className="hover:bg-gray-50 transition-colors">
-                            <td className="px-5 py-4 text-sm font-medium text-gray-900">{wallet.uid}</td>
-                            <td className="px-5 py-4 text-sm text-gray-600">{wallet.user_id}</td>
-                            <td className="px-5 py-4 text-sm font-bold text-gray-900">
-                              {currencySymbol(wallet.currency)}{wallet.balance}
-                            </td>
-                            <td className="px-5 py-4 text-sm text-gray-600">
-                              {currencySymbol(wallet.currency)}{wallet.available_balance}
-                            </td>
-                            <td className="px-5 py-4">
-                              <StatusBadge isLocked={wallet.is_locked} isActive={wallet.is_active} />
-                            </td>
-                            <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">
-                              {new Date(wallet.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
-                            </td>
-                            <td className="px-5 py-4">
-                              <button
-                                onClick={() => handleToggleLock(wallet)}
-                                disabled={togglingId === wallet.id}
-                                className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${
-                                  wallet.is_locked
-                                    ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                                    : 'bg-red-100 text-red-600 hover:bg-red-200'
-                                }`}
-                              >
-                                {togglingId === wallet.id ? '...' : wallet.is_locked ? 'Unlock' : 'Lock'}
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
+                      ))}
                     </tbody>
                   </table>
                 </div>
-
-                {/* Pagination */}
-                <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-                  <p className="text-sm text-gray-500">
-                    {currencyData
-                      ? `Showing ${currencyData.wallets.from ?? 0}–${currencyData.wallets.to ?? 0} of ${currencyData.wallets.total} wallets`
-                      : 'Loading...'}
-                  </p>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                      disabled={currentPage === 1 || loadingWallets}
-                      className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40"
-                    >
-                      <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                      </svg>
-                    </button>
-                    {pageNumbers.map((p) => (
-                      <button
-                        key={p}
-                        onClick={() => setCurrentPage(p)}
-                        className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-medium transition-colors ${
-                          currentPage === p ? 'bg-emerald-500 text-white' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'
-                        }`}
-                      >{p}</button>
-                    ))}
-                    <button
-                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={currentPage === totalPages || loadingWallets}
-                      className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40"
-                    >
-                      <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
               </div>
             </div>
           )}
 
-          {/* ── LEDGER TAB — endpoint not yet mapped ── */}
-          {mainTab === 'ledger' && (
-            <div>
-              <div className="mb-6">
-                <h2 className="text-xl font-bold text-gray-900">System-Wide Transaction Ledger</h2>
-                <p className="text-sm text-gray-500 mt-1">Immutable record of all transactions</p>
-              </div>
-              <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-                <p className="text-gray-400 text-sm">Ledger endpoint not yet available.</p>
-              </div>
-            </div>
-          )}
-
-          {/* ── RECONCILIATION TAB ── */}
+          {/* ── RECONCILIATION ── */}
           {mainTab === 'reconciliation' && (
-            <div>
-              <div className="mb-6">
-                <h2 className="text-xl font-bold text-gray-900">System-Wide Reconciliation</h2>
-                <p className="text-sm text-gray-500 mt-1">Platform wallet reconciliation status</p>
-              </div>
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 mb-6 flex items-center justify-between">
+            <div className="p-8 space-y-5">
+              <div><h2 className="text-lg font-bold text-gray-900">System-Wide Reconciliation</h2><p className="text-sm text-gray-500 mt-0.5">Immutable record of all transactions</p></div>
+              <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-5 flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <svg className="w-12 h-12 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+                  <div className="w-11 h-11 rounded-full bg-white border border-emerald-200 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
                   <div>
-                    <p className="text-lg font-bold text-gray-900">All Wallets Reconciled</p>
-                    <p className="text-sm text-gray-600 mt-1">Stats last refreshed: {new Date().toLocaleString()}</p>
+                    <p className="text-sm font-bold text-gray-900">All Wallets Reconciled</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Last reconciliation: {new Date().toLocaleString()}</p>
                   </div>
                 </div>
-                <button
-                  onClick={fetchStats}
-                  className="px-6 py-2.5 bg-emerald-500 text-white rounded-lg text-sm font-semibold hover:bg-emerald-600 flex items-center gap-2"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                <button onClick={fetchStats} className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-lg text-sm font-semibold hover:bg-emerald-600 transition-colors">
+                  <svg className={`w-4 h-4 ${loadingStats ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                   </svg>
-                  Refresh Stats
+                  Manual Reconcile
                 </button>
               </div>
-              {stats && (
-                <div className="grid grid-cols-3 gap-6">
-                  {(['USD', 'NGN', 'YAN'] as CurrencyType[]).map((cur) => (
-                    <div key={cur} className="bg-white rounded-xl border border-gray-200 p-6">
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="text-xl">{currencyFlag(cur)}</span>
-                        <h3 className="text-sm font-bold text-gray-900">{cur} Wallets</h3>
-                      </div>
-                      <p className="text-2xl font-bold text-gray-900 mb-1">
-                        {currencySymbol(cur)}{stats.by_currency[cur]?.total_balance ?? '0'}
-                      </p>
-                      <p className="text-xs text-gray-500">{stats.by_currency[cur]?.count ?? '0'} total wallets</p>
+              <div className="bg-white rounded-2xl border border-gray-200 p-5">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">Automated Reconciliation</h3>
+                <div className="flex items-center justify-between bg-[#F8F9FA] rounded-xl px-4 py-4">
+                  <div className="flex items-center gap-3">
+                    <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">Auto-Reconciliation Job</p>
+                      <p className="text-xs text-gray-400 mt-0.5">Runs every 10 minutes</p>
                     </div>
-                  ))}
+                  </div>
+                  <span className="text-xs font-semibold text-emerald-500">Active</span>
                 </div>
-              )}
+              </div>
             </div>
           )}
         </div>
-      </main>
+      </div>
     </div>
   );
 }

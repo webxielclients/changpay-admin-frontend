@@ -1,36 +1,328 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 import { fxApi } from '@/lib/api/client';
-import type { ConversionRate, CryptoRate, FxOverviewSummary } from '@/lib/api/client';
-import { AUTH_ROUTES } from '@/constants/auth';
+import type { ConversionRate, FxOverviewSummary } from '@/lib/api/client';
 import DashboardHeader from '@/components/DashboardHeader';
 import Sidebar from '@/components/Sidebar';
 
-type MainTab = 'overview' | 'usd-wallet' | 'ngn-wallet' | 'yuan-wallet';
-type OverviewSubTab = 'live-rates' | 'spread' | 'rate-logs';
+// ─── Types ────────────────────────────────────────────────────────────────────
+type MainTab    = 'overview' | 'usd-wallet' | 'ngn-wallet' | 'yuan-wallet';
+type SubTab     = 'live-rates' | 'spread' | 'rate-logs';
 
+interface RateLog {
+  ts: string;
+  action: string;
+  buyRate: string;
+  sellRate: string;
+  buyFrom: string;
+  sellFrom: string;
+  admin: string;
+  adminId: string;
+  source: string;
+  systemUser: boolean;
+}
+
+interface LatestChange {
+  timestamp: string;
+  action_type: string;
+  admin_name: string;
+  admin_id: string;
+  source: string;
+  reason?: string;
+}
+
+interface SpreadRow {
+  pair: string;
+  base: string;
+  dynamic: string;
+  total: string;
+  minMax: string;
+  active: boolean;
+}
+
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
+function Skeleton({ className }: { className?: string }) {
+  return <div className={`animate-pulse bg-gray-100 rounded-lg ${className ?? ''}`} />;
+}
+
+// ─── Toggle ───────────────────────────────────────────────────────────────────
+function Toggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!enabled)}
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
+        enabled ? 'bg-emerald-500' : 'bg-gray-300'
+      }`}
+    >
+      <span
+        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+          enabled ? 'translate-x-6' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  );
+}
+
+// ─── Active badge ─────────────────────────────────────────────────────────────
+function ActiveBadge({ isActive }: { isActive: boolean }) {
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+      isActive
+        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+        : 'bg-gray-100 text-gray-500 border-gray-200'
+    }`}>
+      {isActive ? 'Active' : 'Inactive'}
+    </span>
+  );
+}
+
+// ─── Change badge ─────────────────────────────────────────────────────────────
+function ChangeBadge({ value }: { value?: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded text-xs font-semibold border border-emerald-100">
+      <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
+      </svg>
+      {value ?? '+20%'}
+    </span>
+  );
+}
+
+// ─── Pair icon ────────────────────────────────────────────────────────────────
+function PairIcon() {
+  return (
+    <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+      <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+      </svg>
+    </div>
+  );
+}
+
+// ─── Rate Card ────────────────────────────────────────────────────────────────
+interface RateCardProps {
+  rate: ConversionRate;
+  overrideEnabled: boolean;
+  onToggleOverride: (v: boolean) => void;
+  onOpenOverride: () => void;
+}
+
+function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride }: RateCardProps) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 pt-6 pb-4">
+        <div className="flex items-center gap-3">
+          <PairIcon />
+          <div>
+            <h3 className="text-xl font-bold text-gray-900">{rate.pair}</h3>
+            <p className="text-sm text-gray-400">{(rate as any).source ?? `${rate.from_currency} → ${rate.to_currency}`}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <ChangeBadge value={(rate as any).change} />
+          <ActiveBadge isActive={rate.is_active} />
+        </div>
+      </div>
+
+      {/* Mid Rate */}
+      <div className="mx-6 mb-4 bg-[#F8F9FA] rounded-xl px-5 py-4">
+        <p className="text-xs text-gray-500 mb-1">Mid Rate</p>
+        <p className="text-3xl font-bold text-gray-900">{(rate as any).mid_rate ?? rate.rate ?? '—'}</p>
+      </div>
+
+      {/* Buy / Sell */}
+      <div className="grid grid-cols-2 gap-3 mx-6 mb-4">
+        <div className="bg-[#F8F9FA] rounded-xl px-5 py-4">
+          <p className="text-xs text-gray-500 mb-1">Buy Rate</p>
+          <p className="text-2xl font-bold text-emerald-500">{(rate as any).buy_rate ?? '—'}</p>
+        </div>
+        <div className="bg-red-50 rounded-xl px-5 py-4">
+          <p className="text-xs text-gray-500 mb-1">Sell Rate</p>
+          <p className="text-2xl font-bold text-red-400">{(rate as any).sell_rate ?? '—'}</p>
+        </div>
+      </div>
+
+      {/* Spread / Volume */}
+      <div className="flex items-center gap-6 mx-6 mb-4">
+        <p className="text-sm text-gray-500">
+          Spread <span className="font-bold text-gray-900">{(rate as any).spread ?? '—'}</span>
+        </p>
+        <p className="text-sm text-gray-500">
+          24h Volume <span className="font-bold text-gray-900">{(rate as any).volume_24h ?? '—'}</span>
+        </p>
+      </div>
+
+      {/* Manual Override toggle */}
+      <div className="flex items-center justify-between mx-6 mb-6 bg-[#F8F9FA] rounded-xl px-5 py-3.5">
+        <div>
+          <p className="text-sm font-semibold text-gray-900">Manual Override</p>
+          <p className="text-xs text-gray-400">Override automatic rate updates</p>
+        </div>
+        <Toggle enabled={overrideEnabled} onChange={onToggleOverride} />
+      </div>
+    </div>
+  );
+}
+
+function SystemRateModal({ pair, onClose }: { pair: string; onClose: () => void }) {
+  const [buyRate,  setBuyRate]  = useState('0.00462');
+  const [sellRate, setSellRate] = useState('0.00462');
+  const [reason,   setReason]   = useState('');
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-end">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative bg-white w-full max-w-md h-full overflow-y-auto shadow-2xl p-8 flex flex-col">
+        <button onClick={onClose} className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded-full transition-colors">
+          <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+        <div className="mb-8">
+          <h3 className="text-xl font-bold text-gray-900">System Rate</h3>
+          <p className="text-sm text-gray-500 mt-1">Currency Pair: <span className="font-semibold text-emerald-600">{pair}</span></p>
+        </div>
+        <div className="space-y-5 flex-1">
+          {([
+            { label: 'Buy Rate',  val: buyRate,  set: setBuyRate },
+            { label: 'Sell Rate', val: sellRate, set: setSellRate },
+          ] as { label: string; val: string; set: (v: string) => void }[]).map(({ label, val, set }) => (
+            <div key={label}>
+              <label className="block text-sm font-medium text-gray-900 mb-2">{label}</label>
+              <input
+                type="number"
+                value={val}
+                onChange={(e) => set(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              />
+            </div>
+          ))}
+          <div>
+            <label className="block text-sm font-medium text-gray-900 mb-2">Reason for Override</label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Provide reason..."
+              rows={4}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-emerald-400"
+            />
+          </div>
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+            <svg className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            </svg>
+            <p className="text-xs text-red-700">Manual overrides bypass automatic rate updates and will be logged in the audit trail.</p>
+          </div>
+        </div>
+        <div className="mt-8 space-y-3">
+          <button onClick={onClose} className="w-full px-6 py-3 border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors">Cancel</button>
+          <button onClick={onClose} className="w-full px-6 py-3 bg-emerald-500 text-white rounded-xl text-sm font-semibold hover:bg-emerald-600 transition-colors">Apply Override</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Configure Spread Modal ───────────────────────────────────────────────────
+function ConfigureSpreadModal({ pair, onClose }: { pair: string; onClose: () => void }) {
+  const [baseSpread, setBaseSpread] = useState('0.2');
+  const [minSpread,  setMinSpread]  = useState('0.15');
+  const [maxSpread,  setMaxSpread]  = useState('0.5');
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-end">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative bg-white w-full max-w-md h-full overflow-y-auto shadow-2xl p-8 flex flex-col">
+        <button onClick={onClose} className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded-full transition-colors">
+          <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+        <div className="mb-8">
+          <h3 className="text-xl font-bold text-gray-900">Configure Spread</h3>
+          <p className="text-sm text-gray-500 mt-1">Currency Pair: <span className="font-semibold text-emerald-600">{pair}</span></p>
+        </div>
+        <div className="space-y-5 flex-1">
+          {([
+            { label: 'Base Spread (%)',    val: baseSpread, set: setBaseSpread },
+            { label: 'Minimum Spread (%)', val: minSpread,  set: setMinSpread },
+            { label: 'Maximum Spread (%)', val: maxSpread,  set: setMaxSpread },
+          ] as { label: string; val: string; set: (v: string) => void }[]).map(({ label, val, set }) => (
+            <div key={label}>
+              <label className="block text-sm font-medium text-gray-900 mb-2">{label}</label>
+              <input
+                type="number"
+                value={val}
+                onChange={(e) => set(e.target.value)}
+                className="w-full px-4 py-3 border text-gray-900 border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              />
+            </div>
+          ))}
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <p className="text-xs text-blue-700">Dynamic spread is calculated automatically based on market conditions and will be added to the base spread.</p>
+          </div>
+        </div>
+        <div className="mt-8 space-y-3">
+          <button onClick={onClose} className="w-full px-6 py-3 border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors">Cancel</button>
+          <button onClick={onClose} className="w-full px-6 py-3 bg-emerald-500 text-white rounded-xl text-sm font-semibold hover:bg-emerald-600 transition-colors">Save Changes</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Static spread data (no endpoint yet) ────────────────────────────────────
+const MOCK_SPREAD: SpreadRow[] = [
+  { pair: 'USD/NGN', base: '0.50%', dynamic: '0.41%', total: '0.91%', minMax: '0.30% - 2.00%', active: true },
+  { pair: 'USD/RMB', base: '0.20%', dynamic: '0.08%', total: '0.28%', minMax: '0.15% - 0.50%', active: true },
+  { pair: 'NGN/RMB', base: '0.60%', dynamic: '0.27%', total: '0.87%', minMax: '0.40% - 1.50%', active: true },
+];
+
+// ─── Table header helper ──────────────────────────────────────────────────────
+function TableHead({ cols }: { cols: string[] }) {
+  return (
+    <thead>
+      <tr className="bg-[#F8F9FA]">
+        {cols.map((h, idx) => (
+          <th
+            key={h}
+            className={`px-5 py-4 text-left text-xs font-semibold text-gray-500 whitespace-nowrap ${
+              idx === 0 ? 'rounded-tl-xl' : ''
+            } ${idx === cols.length - 1 ? 'rounded-tr-xl' : ''}`}
+          >
+            {h}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  PAGE
+// ═════════════════════════════════════════════════════════════════════════════
 export default function FXEnginePage() {
-  const router = useRouter();
   const { isAuthenticated } = useAuthStore();
 
-  const [mainTab, setMainTab] = useState<MainTab>('overview');
-  const [overviewSubTab, setOverviewSubTab] = useState<OverviewSubTab>('live-rates');
-  const [showSystemRateModal, setShowSystemRateModal] = useState(false);
-  const [showConfigureSpreadModal, setShowConfigureSpreadModal] = useState(false);
-  const [selectedPair, setSelectedPair] = useState('');
-  const [selectedCurrencyPair, setSelectedCurrencyPair] = useState('');
-  const [timeRange, setTimeRange] = useState('All Time');
-
+  const [mainTab,         setMainTab]         = useState<MainTab>('overview');
+  const [subTab,          setSubTab]          = useState<SubTab>('live-rates');
   const [conversionRates, setConversionRates] = useState<ConversionRate[]>([]);
-  const [cryptoRates, setCryptoRates] = useState<CryptoRate[]>([]);
-  const [summary, setSummary] = useState<FxOverviewSummary | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<string>('');
-
+  const [summary,         setSummary]         = useState<FxOverviewSummary | null>(null);
+  const [isLoading,       setIsLoading]       = useState(true);
+  const [error,           setError]           = useState<string | null>(null);
+  const [lastUpdated,     setLastUpdated]     = useState('');
+  const [overrides,       setOverrides]       = useState<Record<string, boolean>>({});
+  const [logPair,         setLogPair]         = useState('USD/NGN');
+  const [logRange,        setLogRange]        = useState('All Time');
+  const [rateLogs,        setRateLogs]        = useState<RateLog[]>([]);
+  const [latestChange,    setLatestChange]    = useState<LatestChange | null>(null);
+  const [logsLoading,     setLogsLoading]     = useState(false);
+  const [systemRateModal,   setSystemRateModal]   = useState<string | null>(null);
+  const [configSpreadModal, setConfigSpreadModal] = useState<string | null>(null);
 
   const fetchOverview = useCallback(async () => {
     try {
@@ -38,12 +330,11 @@ export default function FXEnginePage() {
       setError(null);
       const res = await fxApi.getOverview();
       if (res.status) {
-        setConversionRates(res.data.conversion_rates);
-        setCryptoRates(res.data.crypto_rates);
-        setSummary(res.data.summary);
+        setConversionRates(res.data.conversion_rates ?? []);
+        setSummary(res.data.summary ?? null);
         setLastUpdated(new Date().toLocaleTimeString());
-        if (res.data.conversion_rates.length > 0) {
-          setSelectedCurrencyPair(res.data.conversion_rates[0].pair);
+        if ((res.data.conversion_rates ?? []).length > 0) {
+          setLogPair(res.data.conversion_rates[0].pair);
         }
       }
     } catch (err) {
@@ -53,404 +344,412 @@ export default function FXEnginePage() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchOverview();
-  }, [fetchOverview]);
+  useEffect(() => { fetchOverview(); }, [fetchOverview]);
 
   if (!isAuthenticated) return null;
 
-  const handleSystemRateClick = (pair: string) => {
-    setSelectedPair(pair);
-    setShowSystemRateModal(true);
-  };
+  const SUB_TABS: { id: SubTab; label: string }[] = [
+    { id: 'live-rates', label: 'Live rates' },
+    { id: 'spread',     label: 'Spread' },
+    { id: 'rate-logs',  label: 'Rate Logs' },
+  ];
 
-  const handleConfigureClick = (pair: string) => {
-    setSelectedPair(pair);
-    setShowConfigureSpreadModal(true);
-  };
+  const activePairs = summary?.active_conversion_pairs ?? conversionRates.filter((r) => r.is_active).length;
 
   return (
-    <div className="flex h-screen bg-gray-50 font-['DM_Sans']">
+    <div className="flex h-screen bg-[#F8F9FA] font-['DM_Sans',sans-serif]">
       <Sidebar />
 
-      <main className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="bg-white border-b border-gray-200 px-8 py-6">
-       <DashboardHeader title="FX Engine" subtitle="Real-time foreign exchange rate management and conversion engine" />
-       </div>
-        {/* Content */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+
+        {/* ── Page header */}
+        <div className="bg-white mb-3 border-gray-200 px-8 py-5 flex-shrink-0">
+          <DashboardHeader
+            title="FX Engine"
+            subtitle="Real-time foreign exchange rate management and conversion engine"
+          />
+        </div>
+
+        <div className="w-full bg-[#F8F9FA] flex-shrink-0">
+          <div className="flex items-stretch ml-6 w-full">
+            <button
+              onClick={() => setMainTab('overview')}
+              className={`px-10 text-sm font-bold text-center transition-colors flex-shrink-0 ${
+                mainTab === 'overview'
+                  ? 'bg-emerald-500 text-white'
+                  : 'text-gray-700 hover:text-gray-900'
+              }`}
+            >
+              Overview
+            </button>
+            {(['usd-wallet', 'ngn-wallet', 'yuan-wallet'] as MainTab[]).map((id) => {
+              const label = id === 'usd-wallet' ? 'USD WALLET' : id === 'ngn-wallet' ? 'NGN WALLET' : 'YUAN WALLET';
+              return (
+                <button
+                  key={id}
+                  onClick={() => setMainTab(id)}
+                  className={`flex-1 py-4 text-sm font-bold text-center transition-colors ${
+                    mainTab === id
+                      ? 'bg-emerald-500 text-white'
+                      : 'text-gray-700 hover:text-gray-900'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {mainTab === 'overview' && (
+          <div className="w-full bg-white flex items-center flex-shrink-0 px-8 border-b border-gray-100">
+            <div className="flex flex-1">
+              {SUB_TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setSubTab(tab.id)}
+                  className={`relative flex-1 py-4 text-sm font-medium text-center transition-colors whitespace-nowrap ${
+                    subTab === tab.id ? 'text-emerald-600' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {tab.label}
+                  {subTab === tab.id && (
+                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500" />
+                  )}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={fetchOverview}
+              disabled={isLoading}
+              className="ml-6 flex items-center gap-2 px-5 py-2 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 disabled:opacity-50 transition-colors flex-shrink-0"
+            >
+              <svg className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+              </svg>
+              Refresh Now
+            </button>
+          </div>
+        )}
+
+        {/* ── Scrollable content */}
         <div className="flex-1 overflow-y-auto">
 
-          {/* Error banner */}
           {error && (
-            <div className="mx-8 mt-4 p-4 bg-red-50 border border-red-200 rounded-xl">
+            <div className="mx-8 mt-4 p-3 bg-red-50 border border-red-200 rounded-xl">
               <p className="text-sm text-red-600">{error}</p>
             </div>
           )}
 
+          {/* ══════════════════ OVERVIEW ══════════════════ */}
           {mainTab === 'overview' && (
             <>
-              {/* Summary Cards */}
-              <div className="bg-white border-b border-gray-200 px-8 py-6">
-                <h3 className="text-base font-bold text-gray-900 mb-4">Rate Engine Status</h3>
-                {isLoading ? (
-                  <div className="grid grid-cols-4 gap-4">
-                    {[...Array(4)].map((_, i) => (
-                      <div key={i} className="bg-gray-100 rounded-xl p-4 animate-pulse h-20" />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-4 gap-4">
-                    <div className="bg-emerald-50 rounded-xl p-4">
-                      <p className="text-xs text-gray-500 mb-1">Active Pairs</p>
-                      <p className="text-3xl font-bold text-emerald-600">
-                        {summary?.active_conversion_pairs ?? 0}
-                      </p>
-                    </div>
-                    <div className="bg-blue-50 rounded-xl p-4">
-                      <p className="text-xs text-gray-500 mb-1">Total Pairs</p>
-                      <p className="text-3xl font-bold text-blue-600">
-                        {summary?.total_conversion_pairs ?? 0}
-                      </p>
-                    </div>
-                    <div className="bg-purple-50 rounded-xl p-4">
-                      <p className="text-xs text-gray-500 mb-1">Crypto Rates</p>
-                      <p className="text-3xl font-bold text-purple-600">
-                        {summary?.active_crypto_rates ?? 0}
-                      </p>
-                    </div>
-                    <div className="bg-orange-50 rounded-xl p-4">
-                      <p className="text-xs text-gray-500 mb-1">Last Update</p>
-                      <p className="text-xl font-bold text-orange-600">{lastUpdated || '—'}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
 
-              {/* Sub-tabs */}
-              <div className="bg-white border-b border-gray-200 px-8">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    {[
-                      { id: 'live-rates', label: 'Live Rates' },
-                      { id: 'spread', label: 'Spread' },
-                      { id: 'rate-logs', label: 'Rate Logs' },
-                    ].map((tab) => (
-                      <button
-                        key={tab.id}
-                        onClick={() => setOverviewSubTab(tab.id as OverviewSubTab)}
-                        className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                          overviewSubTab === tab.id
-                            ? 'border-emerald-500 text-emerald-600'
-                            : 'border-transparent text-gray-500 hover:text-gray-700'
-                        }`}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
+              {/* ── Live Rates */}
+              {subTab === 'live-rates' && (
+                <div className="p-8 space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-lg font-bold text-gray-900">FX Rates</h2>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-500 text-white rounded-full text-xs font-bold">
+                        <span className="w-1.5 h-1.5 rounded-full bg-white inline-block" />
+                        LIVE
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-400">Last updated: {lastUpdated || '—'}</p>
                   </div>
-                  {(overviewSubTab === 'live-rates' || overviewSubTab === 'spread') && (
-                    <button
-                      onClick={fetchOverview}
-                      disabled={isLoading}
-                      className="my-3 px-6 py-2 bg-emerald-500 text-white rounded-lg text-sm font-semibold hover:bg-emerald-600 flex items-center gap-2 disabled:opacity-50"
-                    >
-                      <svg className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                      </svg>
-                      {isLoading ? 'Refreshing...' : 'Refresh Now'}
-                    </button>
+
+                  {isLoading ? (
+                    <div className="space-y-5">
+                      {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-64 w-full" />)}
+                    </div>
+                  ) : conversionRates.length === 0 ? (
+                    <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
+                      <p className="text-gray-400 text-sm">No conversion rates available.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-5">
+                      {conversionRates.map((rate, idx) => (
+                        <RateCard
+                          key={rate.id ?? idx}
+                          rate={rate}
+                          overrideEnabled={!!overrides[rate.pair]}
+                          onToggleOverride={(val) => setOverrides((prev) => ({ ...prev, [rate.pair]: val }))}
+                          onOpenOverride={() => setSystemRateModal(rate.pair)}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Rate Engine Status */}
+                  {!isLoading && (
+                    <div className="pt-2">
+                      <h3 className="text-lg font-bold text-gray-900 mb-4">Rate Engine Status</h3>
+                      <div className="grid grid-cols-4 gap-4">
+                        <div className="bg-emerald-50 rounded-2xl p-5 border border-emerald-100">
+                          <p className="text-xs text-gray-500 mb-2">Active Pairs</p>
+                          <p className="text-3xl font-bold text-emerald-600">{activePairs}</p>
+                        </div>
+                        <div className="bg-blue-50 rounded-2xl p-5 border border-blue-100">
+                          <p className="text-xs text-gray-500 mb-2">Avg Spread</p>
+                          <p className="text-3xl font-bold text-blue-600">{(summary as any)?.avg_spread ?? '—'}</p>
+                        </div>
+                        <div className="bg-violet-50 rounded-2xl p-5 border border-violet-100">
+                          <p className="text-xs text-gray-500 mb-2">24h Volume</p>
+                          <p className="text-3xl font-bold text-violet-600">{(summary as any)?.volume_24h ?? '—'}</p>
+                        </div>
+                        <div className="bg-amber-50 rounded-2xl p-5 border border-amber-100">
+                          <p className="text-xs text-gray-500 mb-2">Last Update</p>
+                          <p className="text-2xl font-bold text-amber-600">{lastUpdated || '—'}</p>
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
-              </div>
+              )}
 
-              <div className="p-8">
-                {/* Live Rates */}
-                {overviewSubTab === 'live-rates' && (
+              {/* ── Spread */}
+              {subTab === 'spread' && (
+                <div className="p-8 space-y-6">
                   <div>
-                    <div className="flex items-center justify-between mb-6">
-                      <div className="flex items-center gap-3">
-                        <h2 className="text-lg font-bold text-gray-900">FX Rates</h2>
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-semibold">
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" /></svg>
-                          LIVE
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-500">Last updated: {lastUpdated || '—'}</p>
-                    </div>
-
-                    {isLoading ? (
-                      <div className="space-y-6">
-                        {[...Array(3)].map((_, i) => (
-                          <div key={i} className="bg-white rounded-2xl border border-gray-200 p-6 animate-pulse h-64" />
-                        ))}
-                      </div>
-                    ) : conversionRates.length === 0 ? (
-                      <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
-                        <p className="text-gray-500">No conversion rates available.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-6">
-                        {conversionRates.map((rate) => (
-                          <div key={rate.id} className="bg-white rounded-2xl border border-gray-200 p-6">
-                            <div className="flex items-start justify-between mb-6">
-                              <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-emerald-50 rounded-full flex items-center justify-center">
-                                  <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-                                  </svg>
-                                </div>
-                                <div>
-                                  <h3 className="text-xl font-bold text-gray-900">{rate.pair}</h3>
-                                  <p className="text-sm text-gray-500">{rate.from_currency} → {rate.to_currency}</p>
-                                </div>
-                              </div>
-                              <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-semibold ${
-                                rate.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
-                              }`}>
-                                {rate.is_active ? 'Active' : 'Inactive'}
-                              </span>
-                            </div>
-
-                            <div className="mb-6">
-                              <p className="text-sm text-gray-500 mb-1">Rate</p>
-                              <p className="text-4xl font-bold text-gray-900">{rate.rate}</p>
-                            </div>
-
-                            <div className="flex items-center justify-between pt-4 border-t border-gray-100">
-                              <p className="text-xs text-gray-400">
-                                Updated: {new Date(rate.updated_at).toLocaleString()}
-                              </p>
-                              <button
-                                onClick={() => handleSystemRateClick(rate.pair)}
-                                className="px-4 py-2 bg-emerald-500 text-white rounded-lg text-sm font-semibold hover:bg-emerald-600 transition-colors"
-                              >
-                                Manual Override
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-
-                        {/* Crypto rates section */}
-                        {cryptoRates.length > 0 && (
-                          <>
-                            <h2 className="text-lg font-bold text-gray-900 mt-8 mb-4">Crypto Rate Markups</h2>
-                            {cryptoRates.map((rate) => (
-                              <div key={rate.id} className="bg-white rounded-2xl border border-gray-200 p-6">
-                                <div className="flex items-start justify-between">
-                                  <div>
-                                    <h3 className="text-xl font-bold text-gray-900">{rate.pair}</h3>
-                                    <p className="text-sm text-gray-500">{rate.crypto_currency}</p>
-                                  </div>
-                                  <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-semibold ${
-                                    rate.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
-                                  }`}>
-                                    {rate.is_active ? 'Active' : 'Inactive'}
-                                  </span>
-                                </div>
-                                <div className="mt-4">
-                                  <p className="text-sm text-gray-500 mb-1">Rate Markup</p>
-                                  <p className="text-3xl font-bold text-purple-600">{rate.rate_percentage}%</p>
-                                </div>
-                                <p className="text-xs text-gray-400 mt-4">
-                                  Updated: {new Date(rate.updated_at).toLocaleString()}
-                                </p>
-                              </div>
-                            ))}
-                          </>
-                        )}
-                      </div>
-                    )}
+                    <h2 className="text-lg font-bold text-gray-900">Spread Configuration</h2>
+                    <p className="text-sm text-gray-500 mt-0.5">Manage base and dynamic spreads for each currency pair</p>
                   </div>
-                )}
-
-                {/* Spread tab — static config UI, no endpoint yet */}
-                {overviewSubTab === 'spread' && (
-                  <div>
-                    <div className="mb-6">
-                      <h2 className="text-xl font-bold text-gray-900">Spread Configuration</h2>
-                      <p className="text-sm text-gray-500 mt-1">Manage base and dynamic spreads for each currency pair</p>
-                    </div>
-                    {isLoading ? (
-                      <div className="bg-white rounded-xl border border-gray-200 p-12 animate-pulse" />
-                    ) : conversionRates.length === 0 ? (
-                      <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-                        <p className="text-gray-500">No pairs available.</p>
-                      </div>
-                    ) : (
-                      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
-                        <table className="w-full">
-                          <thead>
-                            <tr className="border-b border-gray-200 bg-gray-50">
-                              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Currency Pair</th>
-                              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Rate</th>
-                              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>
-                              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Action</th>
+                  <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <TableHead cols={['Currency Pair', 'Base Spread', 'Dynamic Spread', 'Total Spread', 'Min/Max', 'Status', 'Action']} />
+                        <tbody className="divide-y divide-gray-50">
+                          {MOCK_SPREAD.map((row) => (
+                            <tr key={row.pair} className="hover:bg-gray-50/50 transition-colors">
+                              <td className="px-5 py-4 text-sm font-semibold text-gray-900">{row.pair}</td>
+                              <td className="px-5 py-4 text-sm text-gray-700">{row.base}</td>
+                              <td className="px-5 py-4 text-sm text-gray-700">{row.dynamic}</td>
+                              <td className="px-5 py-4 text-sm font-semibold text-gray-900">{row.total}</td>
+                              <td className="px-5 py-4 text-sm text-gray-500">{row.minMax}</td>
+                              <td className="px-5 py-4"><ActiveBadge isActive={row.active} /></td>
+                              <td className="px-5 py-4">
+                                <button
+                                  onClick={() => setConfigSpreadModal(row.pair)}
+                                  className="text-sm font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
+                                >
+                                  Configure
+                                </button>
+                              </td>
                             </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-100">
-                            {conversionRates.map((rate) => (
-                              <tr key={rate.id} className="hover:bg-gray-50 transition-colors">
-                                <td className="px-6 py-4 text-sm font-bold text-gray-900">{rate.pair}</td>
-                                <td className="px-6 py-4 text-sm text-gray-900">{rate.rate}</td>
-                                <td className="px-6 py-4">
-                                  <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
-                                    rate.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
-                                  }`}>
-                                    {rate.is_active ? 'Active' : 'Inactive'}
-                                  </span>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-100 rounded-2xl p-6">
+                    <h3 className="text-sm font-bold text-blue-900 mb-3">How Spreads Work</h3>
+                    <div className="space-y-1.5 text-sm text-blue-900">
+                      <p><span className="font-bold">Base Spread:</span> Fixed spread percentage applied to all transactions</p>
+                      <p><span className="font-bold">Dynamic Spread:</span> Variable spread based on market volatility, liquidity, and volume</p>
+                      <p><span className="font-bold">Total Spread:</span> Base + Dynamic = Final spread applied to conversions</p>
+                      <p><span className="font-bold">Min/Max Limits:</span> Safeguards to prevent extreme spread values</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── Rate Logs */}
+              {subTab === 'rate-logs' && (
+                <div className="p-8 space-y-6">
+                  <div>
+                    <h2 className="text-lg font-bold text-gray-900">Rate Change History</h2>
+                    <p className="text-sm text-gray-500 mt-0.5">Complete audit trail of all rate changes and admin actions</p>
+                  </div>
+
+                  {/* Stats — from API summary only */}
+                  <div className="grid grid-cols-4 gap-4">
+                    {([
+                      { label: 'Total Changes',    value: (summary as any)?.total_changes    ?? '—', color: 'text-gray-900' },
+                      { label: 'Manual Overrides', value: (summary as any)?.manual_overrides ?? '—', color: 'text-gray-900' },
+                      { label: 'Auto Updates',     value: (summary as any)?.auto_updates     ?? '—', color: 'text-emerald-600' },
+                      { label: 'Current Rate',     value: (summary as any)?.current_rate     ?? '—', color: 'text-gray-900' },
+                    ] as { label: string; value: string; color: string }[]).map((s) => (
+                      <div key={s.label} className="bg-white rounded-2xl border border-gray-200 p-5">
+                        <p className="text-xs text-gray-500 mb-2">{s.label}</p>
+                        <p className={`text-3xl font-bold ${s.color}`}>{s.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Filters */}
+                  <div className="flex items-end gap-4">
+                    <div className="flex-1">
+                      <label className="block text-xs text-gray-500 mb-1.5">Currency Pair</label>
+                      <div className="relative">
+                        <select
+                          value={logPair}
+                          onChange={(e) => setLogPair(e.target.value)}
+                          className="w-full appearance-none bg-white border border-gray-200 rounded-xl pl-4 pr-10 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
+                        >
+                          {['USD/NGN', 'USD/RMB', 'NGN/RMB', ...conversionRates.map((r) => r.pair)]
+                            .filter((v, i, a) => a.indexOf(v) === i)
+                            .map((p) => <option key={p}>{p}</option>)}
+                        </select>
+                        <svg className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs text-gray-500 mb-1.5">Time Range</label>
+                      <div className="relative">
+                        <select
+                          value={logRange}
+                          onChange={(e) => setLogRange(e.target.value)}
+                          className="w-full appearance-none bg-white border border-gray-200 rounded-xl pl-4 pr-10 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
+                        >
+                          {['All Time', 'Last 24 Hours', 'Last 7 Days', 'Last 30 Days'].map((r) => <option key={r}>{r}</option>)}
+                        </select>
+                        <svg className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
+                      </div>
+                    </div>
+                    <button className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors whitespace-nowrap">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+                      </svg>
+                      Export History
+                    </button>
+                  </div>
+
+                  {/* Log table — API data only */}
+                  <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <TableHead cols={['Timestamp', 'Action', 'Buy Rate', 'Sell Rate', 'Admin', 'Source']} />
+                        <tbody className="divide-y divide-gray-50">
+                          {logsLoading ? (
+                            [...Array(3)].map((_, i) => (
+                              <tr key={i}>
+                                {[...Array(6)].map((_, j) => (
+                                  <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>
+                                ))}
+                              </tr>
+                            ))
+                          ) : rateLogs.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className="px-5 py-12 text-center text-sm text-gray-400">
+                                No endpoint available
+                              </td>
+                            </tr>
+                          ) : (
+                            rateLogs.map((row, i) => (
+                              <tr key={i} className="hover:bg-gray-50/50 transition-colors">
+                                <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{row.ts}</td>
+                                <td className="px-5 py-4 text-sm font-medium text-gray-900">{row.action}</td>
+                                <td className="px-5 py-4">
+                                  <p className="text-sm font-semibold text-gray-900">{row.buyRate}</p>
+                                  <p className="text-xs text-gray-400">From: {row.buyFrom}</p>
                                 </td>
-                                <td className="px-6 py-4">
-                                  <button
-                                    onClick={() => handleConfigureClick(rate.pair)}
-                                    className="text-sm text-emerald-600 hover:text-emerald-700 font-medium"
-                                  >
-                                    Configure
-                                  </button>
+                                <td className="px-5 py-4">
+                                  <p className="text-sm font-semibold text-gray-900">{row.sellRate}</p>
+                                  <p className="text-xs text-gray-400">From: {row.sellFrom}</p>
+                                </td>
+                                <td className="px-5 py-4">
+                                  <div className="flex items-center gap-2">
+                                    {row.systemUser ? (
+                                      <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
+                                        <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                                        </svg>
+                                      </div>
+                                    ) : (
+                                      <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-xs font-bold text-blue-700">
+                                        {row.admin.length > 0 ? row.admin.charAt(0) : 'U'}
+                                      </div>
+                                    )}
+                                    <div>
+                                      <p className="text-sm font-medium text-gray-900">{row.admin}</p>
+                                      <p className="text-xs text-gray-400">{row.adminId}</p>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-5 py-4">
+                                  <span className={`text-xs font-semibold ${row.source === 'Manual' ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                    {row.source}
+                                  </span>
                                 </td>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
-                      <h3 className="text-base font-bold text-blue-900 mb-4">How Spreads Work</h3>
-                      <div className="space-y-2 text-sm text-blue-900">
-                        <p><span className="font-semibold">Base Spread:</span> Fixed spread percentage applied to all transactions</p>
-                        <p><span className="font-semibold">Dynamic Spread:</span> Variable spread based on market volatility, liquidity, and volume</p>
-                        <p><span className="font-semibold">Total Spread:</span> Base + Dynamic = Final spread applied to conversions</p>
-                        <p><span className="font-semibold">Min/Max Limits:</span> Safeguards to prevent extreme spread values</p>
-                      </div>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-                )}
 
-                {/* Rate Logs tab — endpoint not yet available */}
-                {overviewSubTab === 'rate-logs' && (
-                  <div>
-                    <div className="mb-6">
-                      <h2 className="text-xl font-bold text-gray-900">Rate Change History</h2>
-                      <p className="text-sm text-gray-500 mt-1">Complete audit trail of all rate changes and admin actions</p>
-                    </div>
-                    <div className="flex items-center gap-4 mb-6">
-                      <div>
-                        <label className="block text-xs text-gray-500 mb-1">Currency Pair</label>
-                        <select
-                          value={selectedCurrencyPair}
-                          onChange={(e) => setSelectedCurrencyPair(e.target.value)}
-                          className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                        >
-                          {conversionRates.map((r) => (
-                            <option key={r.id} value={r.pair}>{r.pair}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-500 mb-1">Time Range</label>
-                        <select
-                          value={timeRange}
-                          onChange={(e) => setTimeRange(e.target.value)}
-                          className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                        >
-                          <option>All Time</option>
-                          <option>Last 24 Hours</option>
-                          <option>Last 7 Days</option>
-                          <option>Last 30 Days</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-                      <p className="text-gray-400 text-sm">Rate change history endpoint not yet available.</p>
+                  {/* Latest Change Details — API data only */}
+                  <div className="space-y-4">
+                    <h3 className="text-base font-bold text-gray-900">Latest Change Details</h3>
+                    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                      {latestChange ? (
+                        <>
+                          <div className="grid grid-cols-2 gap-6 px-6 py-5 border-b border-gray-100">
+                            <div>
+                              <p className="text-sm font-semibold text-gray-900 mb-1">Timestamp</p>
+                              <p className="text-sm text-gray-600">{latestChange.timestamp}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-gray-900 mb-1">Action Type</p>
+                              <p className="text-sm text-gray-600">{latestChange.action_type}</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-6 px-6 py-5">
+                            <div>
+                              <p className="text-sm font-semibold text-gray-900 mb-1">Admin</p>
+                              <p className="text-sm text-gray-600">
+                                {latestChange.admin_name}
+                                {latestChange.admin_id && (
+                                  <span className="text-gray-400"> (ID: {latestChange.admin_id})</span>
+                                )}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-gray-900 mb-1">Source</p>
+                              <p className="text-sm text-gray-600">{latestChange.source}</p>
+                            </div>
+                          </div>
+                          {latestChange.reason && (
+                            <div className="mx-6 mb-6 bg-violet-50 border border-violet-100 rounded-xl px-5 py-4">
+                              <p className="text-sm font-semibold text-violet-700 mb-1">Reason</p>
+                              <p className="text-sm text-gray-700">{latestChange.reason}</p>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="px-6 py-12 text-center text-sm text-gray-400">
+                          No endpoint available
+                        </div>
+                      )}
                     </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </>
           )}
 
+          {/* ══════════════════ WALLET TABS ══════════════════ */}
           {(mainTab === 'usd-wallet' || mainTab === 'ngn-wallet' || mainTab === 'yuan-wallet') && (
             <div className="p-8">
-              <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-                <p className="text-lg text-gray-500">
+              <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
+                <p className="text-lg font-semibold text-gray-400">
                   {mainTab === 'usd-wallet' && 'USD Wallet Management'}
                   {mainTab === 'ngn-wallet' && 'NGN Wallet Management'}
-                  {mainTab === 'yuan-wallet' && 'YUAN Wallet Management'}
+                  {mainTab === 'yuan-wallet' && 'Yuan Wallet Management'}
                 </p>
+                <p className="text-sm text-gray-400 mt-2">Endpoint not yet available</p>
               </div>
             </div>
           )}
+
         </div>
-      </main>
+      </div>
 
       {/* Modals */}
-      {(showSystemRateModal || showConfigureSpreadModal) && (
-        <>
-          <div
-            className="fixed inset-0 bg-gray-900 bg-opacity-50 z-40"
-            onClick={() => { setShowSystemRateModal(false); setShowConfigureSpreadModal(false); }}
-          />
-
-          {showSystemRateModal && (
-            <div className="fixed inset-0 flex items-center justify-center z-50 p-4 pointer-events-none">
-              <div className="bg-white rounded-2xl max-w-md w-full p-6 relative pointer-events-auto shadow-2xl">
-                <button onClick={() => setShowSystemRateModal(false)} className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded-full transition-colors">
-                  <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
-                <h3 className="text-xl font-bold text-gray-900 mb-2">Manual Override</h3>
-                <p className="text-sm text-gray-500 mb-6">Currency Pair: <span className="font-semibold text-emerald-600">{selectedPair}</span></p>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-900 mb-2">New Rate</label>
-                  <input type="text" placeholder="0.00" className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                </div>
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-900 mb-2">Reason for Override</label>
-                  <textarea placeholder="Provide reason..." rows={3} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                </div>
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-6 flex items-start gap-2">
-                  <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
-                  <p className="text-xs text-red-700">Manual overrides bypass automatic rate updates and will be logged in the audit trail.</p>
-                </div>
-                <div className="flex gap-3">
-                  <button onClick={() => setShowSystemRateModal(false)} className="flex-1 px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50">Cancel</button>
-                  <button onClick={() => setShowSystemRateModal(false)} className="flex-1 px-6 py-2.5 bg-emerald-500 text-white rounded-lg text-sm font-semibold hover:bg-emerald-600">Apply Override</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {showConfigureSpreadModal && (
-            <div className="fixed inset-0 flex items-center justify-center z-50 p-4 pointer-events-none">
-              <div className="bg-white rounded-2xl max-w-md w-full p-6 relative pointer-events-auto shadow-2xl">
-                <button onClick={() => setShowConfigureSpreadModal(false)} className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded-full transition-colors">
-                  <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
-                <h3 className="text-xl font-bold text-gray-900 mb-2">Configure Spread</h3>
-                <p className="text-sm text-gray-500 mb-6">Currency Pair: <span className="font-semibold text-emerald-600">{selectedPair}</span></p>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-900 mb-2">Base Spread (%)</label>
-                  <input type="text" defaultValue="0.2" className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                </div>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-900 mb-2">Minimum Spread (%)</label>
-                  <input type="text" defaultValue="0.15" className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                </div>
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-900 mb-2">Maximum Spread (%)</label>
-                  <input type="text" defaultValue="0.5" className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                </div>
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6">
-                  <p className="text-xs text-blue-700">Dynamic spread is calculated automatically based on market conditions and will be added to the base spread.</p>
-                </div>
-                <div className="flex gap-3">
-                  <button onClick={() => setShowConfigureSpreadModal(false)} className="flex-1 px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50">Cancel</button>
-                  <button onClick={() => setShowConfigureSpreadModal(false)} className="flex-1 px-6 py-2.5 bg-emerald-500 text-white rounded-lg text-sm font-semibold hover:bg-emerald-600">Save Changes</button>
-                </div>
-              </div>
-            </div>
-          )}
-        </>
-      )}
+      {systemRateModal   && <SystemRateModal   pair={systemRateModal}   onClose={() => setSystemRateModal(null)} />}
+      {configSpreadModal && <ConfigureSpreadModal pair={configSpreadModal} onClose={() => setConfigSpreadModal(null)} />}
     </div>
   );
 }

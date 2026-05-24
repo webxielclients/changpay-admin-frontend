@@ -174,6 +174,8 @@ export const authApi = {
 // List endpoint returns snake_case; detail endpoint returns camelCase.
 // The page casts accordingly — see user-detail-page.tsx.
 export interface AdminUserRecord {
+  last_login_at: string;
+  last_login_at: string;
   id: number;
   first_name: string;
   last_name: string;
@@ -1217,6 +1219,7 @@ export interface TransactionStats {
 }
 
 export interface SellCryptoTransaction {
+  reference: number;
   id: number;
   status: string;
   cryptoCurrency: string;

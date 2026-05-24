@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 import { banksApi } from '@/lib/api/client';
 import type {
@@ -10,94 +9,182 @@ import type {
   PayoutTransaction,
   PayoutStats,
 } from '@/lib/api/client';
-import { AUTH_ROUTES } from '@/constants/auth';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
 
-type TabType = 'bank-status' | 'payout' | 'chinese-banks';
+type TabType = 'bank-status' | 'payout' | 'handshake';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
 function Skeleton({ className }: { className?: string }) {
-  return <div className={`animate-pulse bg-gray-100 rounded-lg ${className}`} />;
+  return <div className={`animate-pulse bg-gray-100 rounded-lg ${className ?? ''}`} />;
 }
 
+// ─── Status badge ──────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
   const s = status?.toLowerCase();
   const styles =
     s === 'online' || s === 'success' || s === 'completed' || s === 'active'
-      ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
       : s === 'failed' || s === 'offline' || s === 'inactive'
-      ? 'bg-red-100 text-red-700 border-red-200'
+      ? 'bg-red-50 text-red-600 border-red-300'
       : s === 'warning' || s === 'pending' || s === 'processing'
-      ? 'bg-orange-100 text-orange-700 border-orange-200'
+      ? 'bg-orange-50 text-orange-600 border-orange-300'
+      : s === 'degraded'
+      ? 'bg-yellow-50 text-yellow-700 border-yellow-300'
       : 'bg-gray-100 text-gray-600 border-gray-200';
 
   return (
-    <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold border capitalize ${styles}`}>
+    <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold border capitalize ${styles}`}>
       {status}
     </span>
   );
 }
 
-function StatCard({
-  label,
-  value,
-  color,
-  loading,
-}: {
-  label: string;
-  value: string | number;
-  color: 'green' | 'blue' | 'yellow' | 'red';
-  loading?: boolean;
-}) {
-  const bg = { green: 'bg-emerald-50', blue: 'bg-blue-50', yellow: 'bg-yellow-50', red: 'bg-red-50' }[color];
-  const text = { green: 'text-emerald-700', blue: 'text-blue-700', yellow: 'text-yellow-700', red: 'text-red-700' }[color];
+// ─── Connectivity status badge (with icon) ────────────────────────────────────
+function ConnectivityBadge({ status }: { status: string }) {
+  const s = status?.toLowerCase();
+  const isOnline   = s === 'online';
+  const isDegraded = s === 'degraded';
+  const isOffline  = s === 'offline';
+
+  if (isOnline) return (
+    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600">
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z" />
+      </svg>
+      ONLINE
+    </span>
+  );
+  if (isDegraded) return (
+    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-yellow-600">
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+      </svg>
+      DEGRADED
+    </span>
+  );
   return (
-    <div className={`${bg} rounded-xl p-5`}>
-      <p className="text-xs font-medium text-gray-500 mb-2">{label}</p>
-      {loading ? <Skeleton className="h-9 w-24" /> : (
-        <p className={`text-3xl font-bold ${text}`}>{value}</p>
-      )}
+    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-red-500">
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18M10.584 10.587a2.25 2.25 0 003.226 3.226M6.75 6.75a9.75 9.75 0 01.128-.14m9.244 9.244c-2.617 2.617-6.624 3.154-9.802 1.617M3.532 3.532A12.75 12.75 0 0112 1.5c7.036 0 12.75 5.714 12.75 12.75 0 2.915-.977 5.607-2.616 7.757" />
+      </svg>
+      OFFLINE
+    </span>
+  );
+}
+
+// ─── User cell ─────────────────────────────────────────────────────────────────
+function UserCell({ name, email, initials }: { name: string; email?: string; initials?: string }) {
+  const COLORS = ['bg-emerald-100 text-emerald-700', 'bg-violet-100 text-violet-700', 'bg-amber-100 text-amber-700', 'bg-blue-100 text-blue-700'];
+  const nameStr = typeof name === 'string' ? name : '';
+  const color   = COLORS[nameStr.length > 0 ? nameStr.charCodeAt(0) % COLORS.length : 0];
+  const display = initials ?? (nameStr.length >= 2 ? nameStr.slice(0, 2).toUpperCase() : 'U');
+  return (
+    <div className="flex items-center gap-2.5 min-w-0">
+      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${color}`}>
+        {display}
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-gray-900 truncate">{nameStr || '—'}</p>
+        {email && <p className="text-xs text-gray-400 truncate">{email}</p>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Table header ──────────────────────────────────────────────────────────────
+function TableHead({ cols }: { cols: string[] }) {
+  return (
+    <thead>
+      <tr className="bg-[#F8F9FA]">
+        {cols.map((h, idx) => (
+          <th key={h} className={`px-5 py-4 text-left text-xs font-semibold text-gray-500 whitespace-nowrap ${idx === 0 ? 'rounded-tl-xl' : ''} ${idx === cols.length - 1 ? 'rounded-tr-xl' : ''}`}>
+            {h}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+}
+
+// ─── Search bar ────────────────────────────────────────────────────────────────
+function SearchBar({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <div className="relative flex-1">
+      <svg className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+      </svg>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder ?? 'Search...'}
+        className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-full text-sm text-gray-700 placeholder-gray-400 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
+      />
+    </div>
+  );
+}
+
+// ─── Pagination ────────────────────────────────────────────────────────────────
+function Pagination({ currentPage, totalPages, onChange, loading, from, to, total }: {
+  currentPage: number; totalPages: number; onChange: (p: number) => void;
+  loading?: boolean; from?: number; to?: number; total?: number;
+}) {
+  const pages = Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+    if (totalPages <= 5) return i + 1;
+    if (currentPage <= 3) return i + 1;
+    if (currentPage >= totalPages - 2) return totalPages - 4 + i;
+    return currentPage - 2 + i;
+  });
+  return (
+    <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
+      <p className="text-xs text-gray-500">
+        {total != null ? `Showing ${from ?? 1}–${to ?? 0} of ${total.toLocaleString()}` : ''}
+      </p>
+      <div className="flex items-center gap-1">
+        <button onClick={() => onChange(Math.max(1, currentPage - 1))} disabled={currentPage === 1 || loading}
+          className="w-7 h-7 flex items-center justify-center border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 text-gray-500">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+        </button>
+        {pages.map((p) => (
+          <button key={p} onClick={() => onChange(p)}
+            className={`w-7 h-7 flex items-center justify-center rounded-lg text-xs font-medium transition-colors ${currentPage === p ? 'bg-emerald-500 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+            {p}
+          </button>
+        ))}
+        <button onClick={() => onChange(Math.min(totalPages, currentPage + 1))} disabled={currentPage === totalPages || loading}
+          className="w-7 h-7 flex items-center justify-center border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 text-gray-500">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+        </button>
+      </div>
     </div>
   );
 }
 
 
 export default function BanksPayoutsPage() {
-  const router = useRouter();
-  const { isAuthenticated, user: authUser } = useAuthStore();
+  const { isAuthenticated } = useAuthStore();
 
   const [activeTab, setActiveTab] = useState<TabType>('bank-status');
 
-  // Bank Status tab
-  const [providers, setProviders] = useState<PaymentProviderStat[]>([]);
-  const [loadingProviders, setLoadingProviders] = useState(true);
+  // Bank Status
+  const [providers,        setProviders]        = useState<PaymentProviderStat[]>([]);
+  const [loadingProviders, setLoadingProviders]  = useState(true);
 
-  // Payout tab
-  const [payouts, setPayouts] = useState<PayoutTransaction[]>([]);
-  const [payoutStats, setPayoutStats] = useState<PayoutStats | null>(null);
-  const [payoutPagination, setPayoutPagination] = useState<{ total: number; last_page: number; from: number; to: number } | null>(null);
-  const [loadingPayouts, setLoadingPayouts] = useState(false);
+  // Payout
+  const [payouts,            setPayouts]            = useState<PayoutTransaction[]>([]);
+  const [payoutStats,        setPayoutStats]        = useState<PayoutStats | null>(null);
+  const [payoutPagination,   setPayoutPagination]   = useState<{ total: number; last_page: number; from: number; to: number } | null>(null);
+  const [loadingPayouts,     setLoadingPayouts]     = useState(false);
   const [loadingPayoutStats, setLoadingPayoutStats] = useState(true);
-  const [payoutPage, setPayoutPage] = useState(1);
-  const [payoutSearch, setPayoutSearch] = useState('');
-  const [payoutStatus, setPayoutStatus] = useState('');
-  const [payoutCurrency, setPayoutCurrency] = useState('');
+  const [payoutPage,         setPayoutPage]         = useState(1);
+  const [payoutSearch,       setPayoutSearch]       = useState('');
+  const [payoutStatus,       setPayoutStatus]       = useState('');
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Chinese Banks tab
-  const [chineseBanks, setChineseBanks] = useState<ChineseBank[]>([]);
-  const [loadingChineseBanks, setLoadingChineseBanks] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [editingBank, setEditingBank] = useState<ChineseBank | null>(null);
-  const [bankForm, setBankForm] = useState({ name: '', code: '', is_active: true });
-  const [savingBank, setSavingBank] = useState(false);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const [error, setError] = useState<string | null>(null);
 
-
+  // ── Fetchers ────────────────────────────────────────────────────────────────
   const fetchProviders = useCallback(async () => {
     try {
       setLoadingProviders(true);
@@ -111,7 +198,6 @@ export default function BanksPayoutsPage() {
     }
   }, []);
 
-  // Fetch payout stats
   const fetchPayoutStats = useCallback(async () => {
     try {
       setLoadingPayoutStats(true);
@@ -122,26 +208,20 @@ export default function BanksPayoutsPage() {
     }
   }, []);
 
-  // Fetch payout transactions
-  const fetchPayouts = useCallback(async (
-    page: number, search: string, status: string, currency: string
-  ) => {
+  const fetchPayouts = useCallback(async (page: number, search: string, status: string) => {
     try {
       setLoadingPayouts(true);
       setError(null);
       const res = await banksApi.getPayouts({
-        page,
-        per_page: 15,
+        page, per_page: 15,
         search: search || undefined,
         status: status || undefined,
-        currency: currency || undefined,
       });
       if (res.status) {
-        const d = res.data;
-        if (d && typeof d === 'object' && 'data' in d) {
-          const paginated = d as { data: PayoutTransaction[]; total: number; last_page: number; from: number; to: number };
-          setPayouts(paginated.data ?? []);
-          setPayoutPagination({ total: paginated.total, last_page: paginated.last_page, from: paginated.from, to: paginated.to });
+        const d = res.data as any;
+        if (d && 'data' in d) {
+          setPayouts(d.data ?? []);
+          setPayoutPagination({ total: d.total, last_page: d.last_page, from: d.from, to: d.to });
         } else {
           setPayouts([]);
         }
@@ -153,39 +233,17 @@ export default function BanksPayoutsPage() {
     }
   }, []);
 
-  // Fetch Chinese banks
-  const fetchChineseBanks = useCallback(async () => {
-    try {
-      setLoadingChineseBanks(true);
-      setError(null);
-      const res = await banksApi.getChineseBanks();
-      if (res.status) setChineseBanks(res.data ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load Chinese banks');
-    } finally {
-      setLoadingChineseBanks(false);
-    }
-  }, []);
-
-  // Tab change effects — MUST be before the auth guard
   useEffect(() => {
     if (!isAuthenticated) return;
     if (activeTab === 'bank-status') fetchProviders();
-    if (activeTab === 'payout') {
-      fetchPayoutStats();
-      fetchPayouts(payoutPage, payoutSearch, payoutStatus, payoutCurrency);
-    }
-    if (activeTab === 'chinese-banks') fetchChineseBanks();
+    if (activeTab === 'payout') { fetchPayoutStats(); fetchPayouts(payoutPage, payoutSearch, payoutStatus); }
   }, [activeTab, isAuthenticated]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
-    if (activeTab === 'payout') {
-      fetchPayouts(payoutPage, payoutSearch, payoutStatus, payoutCurrency);
-    }
-  }, [payoutPage, payoutStatus, payoutCurrency]);
+    if (!isAuthenticated || activeTab !== 'payout') return;
+    fetchPayouts(payoutPage, payoutSearch, payoutStatus);
+  }, [payoutPage, payoutStatus]);
 
-  // Auth guard — ALWAYS after every hook and useEffect
   if (!isAuthenticated) return null;
 
   const handleSearchChange = (val: string) => {
@@ -193,485 +251,364 @@ export default function BanksPayoutsPage() {
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
     searchTimeout.current = setTimeout(() => {
       setPayoutPage(1);
-      fetchPayouts(1, val, payoutStatus, payoutCurrency);
+      fetchPayouts(1, val, payoutStatus);
     }, 400);
   };
 
-  const handleSaveBank = async () => {
-    if (!bankForm.name.trim() || !bankForm.code.trim()) return;
-    try {
-      setSavingBank(true);
-      if (editingBank) {
-        const res = await banksApi.updateChineseBank(editingBank.id, bankForm);
-        if (res.status) setChineseBanks((prev) => prev.map((b) => b.id === editingBank.id ? res.data : b));
-      } else {
-        const res = await banksApi.addChineseBank(bankForm);
-        if (res.status) setChineseBanks((prev) => [res.data, ...prev]);
-      }
-      setShowAddModal(false);
-      setEditingBank(null);
-      setBankForm({ name: '', code: '', is_active: true });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save bank');
-    } finally {
-      setSavingBank(false);
-    }
-  };
-
-  const handleDeactivateBank = async (bank: ChineseBank) => {
-    try {
-      setDeletingId(bank.id);
-      const res = await banksApi.deactivateChineseBank(bank.id);
-      if (res.status) setChineseBanks((prev) => prev.filter((b) => b.id !== bank.id));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to deactivate bank');
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
   const totalPayoutPages = payoutPagination?.last_page ?? 1;
-  const payoutPageNumbers = Array.from({ length: Math.min(totalPayoutPages, 5) }, (_, i) => {
-    if (totalPayoutPages <= 5) return i + 1;
-    if (payoutPage <= 3) return i + 1;
-    if (payoutPage >= totalPayoutPages - 2) return totalPayoutPages - 4 + i;
-    return payoutPage - 2 + i;
-  });
+
+  const TABS: { id: TabType; label: string }[] = [
+    { id: 'bank-status', label: 'Bank Status' },
+    { id: 'payout',      label: 'Payout' },
+    { id: 'handshake',   label: 'Handshake' },
+  ];
+
+  // ── Derive summary counts from providers for the stat cards ─────────────────
+  const totalBanks  = providers.length;
+  const onlineCount = providers.filter((p) => (p as any).status?.toLowerCase() === 'online' || p.success_rate >= 95).length;
+  const degraded    = providers.filter((p) => (p as any).status?.toLowerCase() === 'degraded' || (p.success_rate >= 80 && p.success_rate < 95)).length;
+  const offline     = providers.filter((p) => (p as any).status?.toLowerCase() === 'offline' || p.success_rate < 80).length;
 
   return (
-    <div className="flex h-screen bg-gray-50 font-['DM_Sans']">
+    <div className="flex h-screen bg-[#F8F9FA] font-['DM_Sans',sans-serif]">
       <Sidebar />
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto">
 
-          {/* Header */}
-          <div className="bg-white border-b border-gray-200 px-8 py-6">
-            {/* <div className="flex items-center justify-between mb-4">
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Banks & Payouts</h1>
-                <p className="text-sm text-gray-500 mt-0.5">Monitor bank status, payouts, and Chinese banks</p>
-              </div>
-              <div className="flex items-center gap-4">
-                <button className="relative p-2 hover:bg-gray-100 rounded-xl">
-                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312.665" />
-                  </svg>
-                </button>
-                <div className="flex items-center gap-3 cursor-pointer">
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white text-xs font-bold">
-                    {((authUser?.first_name?.[0] ?? '') + (authUser?.last_name?.[0] ?? '')) || 'A'}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{authUser?.first_name ?? authUser?.email ?? 'Admin'}</p>
-                    <p className="text-xs text-gray-500">Admin</p>
-                  </div>
-                </div>
-              </div>
-            </div> */}
-          <DashboardHeader title="Banks & Payouts" subtitle="Monitor bank status, payouts, and Chinese banks" />
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
-            {/* Tabs */}
-            <div className="flex items-center gap-3 mt-4">
-              {[
-                { id: 'bank-status', label: 'Bank Status' },
-                { id: 'payout', label: 'Payout' },
-                { id: 'chinese-banks', label: 'Chinese Banks' },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as TabType)}
-                  className={`px-8 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
-                    activeTab === tab.id
-                      ? 'bg-emerald-500 text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
+        {/* ── Page header */}
+        <div className="bg-white border-b border-gray-200 px-8 py-5 flex-shrink-0">
+          <DashboardHeader
+            title="Banks & Payouts"
+            subtitle="Monitor bank status, payouts, and reconciliation"
+          />
+        </div>
+
+        {/* ── Full-width tab bar — same pattern as FX Engine */}
+        <div className="w-full flex-shrink-0">
+          <div className="flex items-stretch w-full">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex-1 ml-7 py-4 text-sm font-bold text-center transition-colors ${
+                  activeTab === tab.id
+                    ? 'bg-[#009F51] text-[#E1F7EB]'
+                    : 'bg-[#F8F9FA] text-gray-700 hover:text-gray-900'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
-          <div className="p-8">
-            {error && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl">
-                <p className="text-sm text-red-600">{error}</p>
-              </div>
-            )}
+        </div>
 
-            {/* ── BANK STATUS TAB ── */}
-            {activeTab === 'bank-status' && (
-              <div>
-                <div className="flex items-center justify-between mb-6">
-                  <div>
-                    <h2 className="text-xl font-bold text-gray-900">Payment Provider Stats</h2>
-                    <p className="text-sm text-gray-500 mt-0.5">DVA accounts, transactions and success rates per provider</p>
-                  </div>
-                  <button
-                    onClick={fetchProviders}
-                    disabled={loadingProviders}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-lg text-sm font-semibold hover:bg-emerald-600 disabled:opacity-50 transition-colors"
-                  >
-                    <svg className={`w-4 h-4 ${loadingProviders ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                    </svg>
-                    Refresh
-                  </button>
+        {/* ── Scrollable content */}
+        <div className="flex-1 overflow-y-auto">
+          {error && (
+            <div className="mx-8 mt-5 p-3 bg-red-50 border border-red-200 rounded-xl">
+              <p className="text-sm text-red-600">{error}</p>
+            </div>
+          )}
+
+          {/* ══════════════════════════════════════
+              BANK STATUS TAB
+          ══════════════════════════════════════ */}
+          {activeTab === 'bank-status' && (
+            <div className="p-8 space-y-6">
+
+              {/* Heading + Refresh */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900">Bank Status Monitor</h2>
+                  <p className="text-sm text-gray-500 mt-0.5">Real-time uptime and performance tracking</p>
                 </div>
+                <button
+                  onClick={fetchProviders}
+                  disabled={loadingProviders}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-[#009F51] text-white rounded-full text-sm font-semibold hover:bg-[#007A3D] disabled:opacity-50 transition-colors"
+                >
+                  <svg className={`w-4 h-4 ${loadingProviders ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                  Refresh Now
+                </button>
+              </div>
 
-                {loadingProviders ? (
-                  <div className="space-y-4">
-                    {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-40 w-full" />)}
+              {/* Rate Engine Status summary cards */}
+              <div className="bg-white rounded-2xl border border-gray-200 p-6">
+                <h3 className="text-base font-bold text-gray-900 mb-4">Rate Engine Status</h3>
+                <div className="grid grid-cols-4 gap-4">
+                  {/* Total Banks */}
+                  <div className="rounded-xl p-5" style={{ backgroundColor: '#009F511A' }}>
+                    <p className="text-xs text-gray-500 mb-2">Total Banks</p>
+                    {loadingProviders
+                      ? <Skeleton className="h-9 w-12" />
+                      : <p className="text-3xl font-bold" style={{ color: '#009F51' }}>{totalBanks}</p>}
                   </div>
-                ) : providers.length === 0 ? (
-                  <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-                    <p className="text-gray-400 text-sm">No provider data available</p>
+                  {/* Online */}
+                  <div className="rounded-xl p-5" style={{ backgroundColor: '#0274D81A' }}>
+                    <p className="text-xs text-gray-500 mb-2">Online</p>
+                    {loadingProviders
+                      ? <Skeleton className="h-9 w-12" />
+                      : <p className="text-3xl font-bold" style={{ color: '#0274D8' }}>{onlineCount}</p>}
                   </div>
-                ) : (
-                  <div className="space-y-5">
-                    {providers.map((p) => (
-                      <div key={p.provider} className="bg-white rounded-xl border border-gray-200 p-6">
-                        <div className="flex items-start justify-between mb-5">
-                          <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
-                              {p.provider?.slice(0, 2).toUpperCase()}
+                  {/* Degraded */}
+                  <div className="rounded-xl p-5" style={{ backgroundColor: '#FFDA441A' }}>
+                    <p className="text-xs text-gray-500 mb-2">Degraded</p>
+                    {loadingProviders
+                      ? <Skeleton className="h-9 w-12" />
+                      : <p className="text-3xl font-bold" style={{ color: '#D4A017' }}>{degraded}</p>}
+                  </div>
+                  {/* Offline */}
+                  <div className="rounded-xl p-5" style={{ backgroundColor: '#FF756B1A' }}>
+                    <p className="text-xs text-gray-500 mb-2">Offline</p>
+                    {loadingProviders
+                      ? <Skeleton className="h-9 w-12" />
+                      : <p className="text-3xl font-bold" style={{ color: '#FF756B' }}>{offline}</p>}
+                  </div>
+                </div>
+              </div>
+
+              {/* Provider cards */}
+              {loadingProviders ? (
+                <div className="space-y-4">
+                  {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-56 w-full" />)}
+                </div>
+              ) : providers.length === 0 ? (
+                <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
+                  <p className="text-gray-400 text-sm">No provider data available</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {providers.map((p, idx) => {
+                    const status = (p as any).status ?? (p.success_rate >= 95 ? 'online' : p.success_rate >= 80 ? 'degraded' : 'offline');
+                    const uptimeColor = status === 'online' ? 'bg-emerald-500' : status === 'degraded' ? 'bg-yellow-400' : 'bg-red-500';
+                    const hasDowntime = !!(p as any).last_downtime;
+
+                    return (
+                      <div key={p.provider ?? idx} className="bg-white rounded-2xl border border-gray-200 p-6">
+                        {/* Bank header */}
+                        <div className="flex items-center justify-between mb-5">
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0 overflow-hidden">
+                              {(p as any).logo_url
+                                ? <img src={(p as any).logo_url} alt={p.provider} className="w-full h-full object-cover" />
+                                : <span>{p.provider?.slice(0, 2).toUpperCase()}</span>}
                             </div>
                             <div>
-                              <h3 className="text-base font-bold text-gray-900 capitalize">{p.provider}</h3>
-                              <p className="text-sm text-gray-500">Payment Provider</p>
+                              <h3 className="text-lg font-bold text-gray-900">{(p as any).bank_name ?? p.provider}</h3>
+                              <p className="text-sm text-gray-400">{(p as any).bank_code ?? p.provider?.toUpperCase()}</p>
                             </div>
                           </div>
-                          <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold border ${
-                            p.success_rate >= 95
-                              ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
-                              : p.success_rate >= 80
-                              ? 'bg-yellow-100 text-yellow-700 border-yellow-200'
-                              : 'bg-red-100 text-red-700 border-red-200'
-                          }`}>
-                            {p.success_rate >= 95 ? 'HEALTHY' : p.success_rate >= 80 ? 'DEGRADED' : 'CRITICAL'}
-                          </span>
+                          <ConnectivityBadge status={status} />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-6 mb-5">
-                          <div>
-                            <p className="text-sm text-gray-600 mb-1">Success Rate</p>
-                            <div className="flex items-center gap-3">
-                              <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full ${p.success_rate >= 95 ? 'bg-emerald-500' : p.success_rate >= 80 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                                  style={{ width: `${Math.min(p.success_rate, 100)}%` }}
-                                />
+                        {/* Uptime + Response Time */}
+                        <div className="bg-[#F8F9FA] rounded-xl px-5 py-4 mb-4">
+                          <div className="flex items-start justify-between gap-6">
+                            <div className="flex-1">
+                              <p className="text-xs text-gray-500 mb-2">Uptime (30 days)</p>
+                              <div className="flex items-center gap-3">
+                                <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full ${uptimeColor} rounded-full transition-all`}
+                                    style={{ width: `${Math.min((p as any).uptime ?? p.success_rate, 100)}%` }}
+                                  />
+                                </div>
+                                <span className="text-xs font-semibold text-gray-700 whitespace-nowrap">
+                                  {(p as any).uptime ?? p.success_rate}%
+                                </span>
                               </div>
-                              <span className="text-sm font-bold text-gray-900">{p.success_rate}%</span>
+                            </div>
+                            <div className="flex-shrink-0">
+                              <p className="text-xs text-gray-500 mb-1">Response Time</p>
+                              <p className="text-base font-bold text-gray-900">{(p as any).response_time ?? '—'}</p>
                             </div>
                           </div>
+                        </div>
+
+                        {/* Transactions / Success Rate / Pending */}
+                        <div className="grid grid-cols-3 gap-4">
                           <div>
-                            <p className="text-sm text-gray-600">Active Accounts</p>
-                            <p className="text-sm font-bold text-gray-900 mt-1">{p.active_accounts}</p>
+                            <p className="text-xs text-gray-500 mb-1">Transactions</p>
+                            <p className="text-base font-bold text-gray-900">{p.total_transactions?.toLocaleString() ?? '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 mb-1">Success Rate</p>
+                            <p className="text-base font-bold text-emerald-600">{p.success_rate}%</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 mb-1">Pending</p>
+                            <p className="text-base font-bold text-amber-500">{(p as any).pending ?? '—'}</p>
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-3 gap-6">
-                          <div>
-                            <p className="text-sm text-gray-600">Total Accounts</p>
-                            <p className="text-base font-bold text-gray-900 mt-1">{p.total_accounts}</p>
+                        {/* Last Downtime notice (only shown when present, like Access Bank / UBA) */}
+                        {hasDowntime && (
+                          <div className="mt-4 bg-amber-50 border border-amber-100 rounded-xl px-5 py-3">
+                            <p className="text-xs text-gray-600">Last Downtime: <span className="font-semibold">{(p as any).last_downtime}</span></p>
+                            {(p as any).downtime_duration && (
+                              <p className="text-xs font-bold text-gray-800 mt-0.5">Duration: {(p as any).downtime_duration}</p>
+                            )}
                           </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Total Transactions</p>
-                            <p className="text-base font-bold text-gray-900 mt-1">{p.total_transactions.toLocaleString()}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">Completed</p>
-                            <p className="text-base font-bold text-emerald-600 mt-1">{p.completed_transactions.toLocaleString()}</p>
-                          </div>
-                        </div>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
-            {/* ── PAYOUT TAB ── */}
-            {activeTab === 'payout' && (
+          {/* ══════════════════════════════════════
+              PAYOUT TAB
+          ══════════════════════════════════════ */}
+          {activeTab === 'payout' && (
+            <div className="p-8 space-y-6">
               <div>
-                <div className="mb-6">
-                  <h2 className="text-xl font-bold text-gray-900">Payout Transactions</h2>
-                  <p className="text-sm text-gray-500 mt-0.5">All withdrawal payout transactions</p>
-                </div>
+                <h2 className="text-lg font-bold text-gray-900">Payout Transactions</h2>
+                <p className="text-sm text-gray-500 mt-0.5">All bank payout transactions</p>
+              </div>
 
-                {/* Stats */}
-                <div className="grid grid-cols-4 gap-5 mb-8">
-                  <StatCard label="Total Payouts" value={payoutStats?.total ?? '—'} color="green" loading={loadingPayoutStats} />
-                  <StatCard label="Completed" value={payoutStats?.completed ?? '—'} color="blue" loading={loadingPayoutStats} />
-                  <StatCard label="Pending" value={payoutStats?.pending ?? '—'} color="yellow" loading={loadingPayoutStats} />
-                  <StatCard label="Failed" value={payoutStats?.failed ?? '—'} color="red" loading={loadingPayoutStats} />
+              {/* Stat cards — Figma colours exactly */}
+              <div className="space-y-3">
+                <h3 className="text-base font-bold text-gray-900">Rate Engine Status</h3>
+                <div className="grid grid-cols-4 gap-4">
+                  {([
+                    { label: 'Total Payouts', value: payoutStats?.total,     bg: '#009F511A', color: '#009F51' },
+                    { label: 'Successful',    value: payoutStats?.completed, bg: '#0274D81A', color: '#0274D8' },
+                    { label: 'Pending',       value: payoutStats?.pending,   bg: '#FFDA441A', color: '#D4A017' },
+                    { label: 'Failed',        value: payoutStats?.failed,    bg: '#FF756B1A', color: '#FF756B' },
+                  ] as { label: string; value?: number | string; bg: string; color: string }[]).map((s) => (
+                    <div key={s.label} className="rounded-xl p-5" style={{ backgroundColor: s.bg }}>
+                      <p className="text-xs text-gray-500 mb-2">{s.label}</p>
+                      {loadingPayoutStats
+                        ? <Skeleton className="h-9 w-24" />
+                        : <p className="text-3xl font-bold" style={{ color: s.color }}>
+                            {s.value != null ? Number(s.value).toLocaleString() : '—'}
+                          </p>}
+                    </div>
+                  ))}
                 </div>
+              </div>
 
-                {/* Filters */}
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="flex-1 relative">
-                    <svg className="w-4 h-4 text-gray-400 absolute left-3 top-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                    </svg>
-                    <input
-                      type="text"
-                      value={payoutSearch}
-                      onChange={(e) => handleSearchChange(e.target.value)}
-                      placeholder="Search by user, bank or reference..."
-                      className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                    />
-                  </div>
+              {/* Filters row */}
+              <div className="flex items-center gap-3">
+                <SearchBar
+                  value={payoutSearch}
+                  onChange={handleSearchChange}
+                  placeholder="Search by user, bank or reference..."
+                />
+                <div className="relative flex-shrink-0">
                   <select
                     value={payoutStatus}
                     onChange={(e) => { setPayoutStatus(e.target.value); setPayoutPage(1); }}
-                    className="px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                    className="appearance-none bg-white border border-gray-200 rounded-lg pl-3 pr-8 py-2.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
                   >
-                    <option value="">All Status</option>
-                    <option value="completed">Completed</option>
-                    <option value="pending">Pending</option>
-                    <option value="processing">Processing</option>
-                    <option value="failed">Failed</option>
+                    {['All Status', 'completed', 'pending', 'processing', 'failed'].map((s) => (
+                      <option key={s} value={s === 'All Status' ? '' : s}>{s === 'All Status' ? 'All Status' : s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                    ))}
                   </select>
-                  <select
-                    value={payoutCurrency}
-                    onChange={(e) => { setPayoutCurrency(e.target.value); setPayoutPage(1); }}
-                    className="px-4 py-2.5 border border-gray-300 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
-                  >
-                    <option value="">All Currencies</option>
-                    <option value="NGN">NGN</option>
-                    <option value="USD">USD</option>
-                    <option value="YAN">YAN</option>
-                  </select>
-                  <button className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-xl text-sm font-semibold hover:bg-emerald-600 transition-colors">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                    </svg>
-                    Export
-                  </button>
+                  <svg className="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
                 </div>
-
-                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="bg-gray-50 border-b border-gray-200">
-                          {['Reference', 'User', 'Bank', 'Amount', 'Currency', 'Status', 'Provider', 'Date'].map((h) => (
-                            <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {loadingPayouts ? (
-                          [...Array(6)].map((_, i) => (
-                            <tr key={i}>{[...Array(8)].map((_, j) => (
-                              <td key={j} className="px-6 py-4"><Skeleton className="h-5 w-full" /></td>
-                            ))}</tr>
-                          ))
-                        ) : payouts.length === 0 ? (
-                          <tr>
-                            <td colSpan={8} className="px-6 py-12 text-center text-gray-400 text-sm">
-                              No payout transactions found
-                            </td>
-                          </tr>
-                        ) : (
-                          payouts.map((tx, i) => (
-                            <tr key={tx.id ?? i} className="hover:bg-gray-50 transition-colors">
-                              <td className="px-6 py-4 text-xs text-gray-600 whitespace-nowrap">{String(tx.reference ?? '—')}</td>
-                              <td className="px-6 py-4">
-                                <div>
-                                  <p className="text-sm font-medium text-gray-900">{String(tx.user ?? '—')}</p>
-                                  <p className="text-xs text-gray-400">{String(tx.email ?? '')}</p>
-                                </div>
-                              </td>
-                              <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">{String(tx.bank ?? '—')}</td>
-                              <td className="px-6 py-4 text-sm font-bold text-gray-900">{String(tx.amount ?? '—')}</td>
-                              <td className="px-6 py-4 text-sm text-gray-600">{String(tx.currency ?? '—')}</td>
-                              <td className="px-6 py-4"><StatusBadge status={String(tx.status ?? 'unknown')} /></td>
-                              <td className="px-6 py-4 text-sm text-gray-600 capitalize">{String(tx.provider ?? '—')}</td>
-                              <td className="px-6 py-4 text-xs text-gray-500 whitespace-nowrap">
-                                {tx.created_at ? new Date(String(tx.created_at)).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Pagination */}
-                  <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-                    <p className="text-sm text-gray-500">
-                      {payoutPagination
-                        ? `Showing ${payoutPagination.from ?? 0}–${payoutPagination.to ?? 0} of ${(payoutPagination.total ?? 0).toLocaleString()}`
-                        : 'Loading...'}
-                    </p>
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => setPayoutPage((p) => Math.max(1, p - 1))} disabled={payoutPage === 1 || loadingPayouts}
-                        className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40">
-                        <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                        </svg>
-                      </button>
-                      {payoutPageNumbers.map((p) => (
-                        <button key={p} onClick={() => setPayoutPage(p)}
-                          className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-medium ${payoutPage === p ? 'bg-emerald-500 text-white' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-                          {p}
-                        </button>
-                      ))}
-                      <button onClick={() => setPayoutPage((p) => Math.min(totalPayoutPages, p + 1))} disabled={payoutPage === totalPayoutPages || loadingPayouts}
-                        className="w-8 h-8 flex items-center justify-center border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40">
-                        <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── CHINESE BANKS TAB ── */}
-            {activeTab === 'chinese-banks' && (
-              <div>
-                <div className="flex items-center justify-between mb-6">
-                  <div>
-                    <h2 className="text-xl font-bold text-gray-900">Chinese Banks</h2>
-                    <p className="text-sm text-gray-500 mt-0.5">Banks available for PayToChina transfers</p>
-                  </div>
-                  <button
-                    onClick={() => { setEditingBank(null); setBankForm({ name: '', code: '', is_active: true }); setShowAddModal(true); }}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-lg text-sm font-semibold hover:bg-emerald-600 transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                    </svg>
-                    Add Bank
-                  </button>
-                </div>
-
-                {loadingChineseBanks ? (
-                  <div className="grid grid-cols-3 gap-4">
-                    {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-28" />)}
-                  </div>
-                ) : chineseBanks.length === 0 ? (
-                  <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-                    <p className="text-gray-400 text-sm">No Chinese banks found</p>
-                  </div>
-                ) : (
-                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="bg-gray-50 border-b border-gray-200">
-                          {['Bank Name', 'Code', 'Status', 'Actions'].map((h) => (
-                            <th key={h} className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {chineseBanks.map((bank) => (
-                          <tr key={bank.id} className="hover:bg-gray-50 transition-colors">
-                            <td className="px-6 py-4">
-                              <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 rounded-full bg-red-100 flex items-center justify-center text-red-700 font-bold text-xs">
-                                  {bank.name.slice(0, 2).toUpperCase()}
-                                </div>
-                                <p className="text-sm font-medium text-gray-900">{bank.name}</p>
-                              </div>
-                            </td>
-                            <td className="px-6 py-4 text-sm text-gray-600">{bank.code}</td>
-                            <td className="px-6 py-4">
-                              <StatusBadge status={bank.isActive ? 'Active' : 'Inactive'} />
-                            </td>
-                            <td className="px-6 py-4">
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => { setEditingBank(bank); setBankForm({ name: bank.name, code: bank.code, is_active: bank.isActive }); setShowAddModal(true); }}
-                                  className="text-sm text-emerald-600 hover:text-emerald-700 font-medium"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => handleDeactivateBank(bank)}
-                                  disabled={deletingId === bank.id}
-                                  className="text-sm text-red-500 hover:text-red-600 font-medium disabled:opacity-50"
-                                >
-                                  {deletingId === bank.id ? '...' : 'Deactivate'}
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </main>
-
-      {/* Add/Edit Chinese Bank Modal */}
-      {showAddModal && (
-        <>
-          <div className="fixed inset-0 bg-gray-900 bg-opacity-50 z-40" onClick={() => setShowAddModal(false)} />
-          <div className="fixed inset-0 flex items-center justify-center z-50 p-4 pointer-events-none">
-            <div className="bg-white rounded-2xl max-w-md w-full p-6 pointer-events-auto shadow-2xl">
-              <h3 className="text-xl font-bold text-gray-900 mb-6">
-                {editingBank ? 'Edit Chinese Bank' : 'Add Chinese Bank'}
-              </h3>
-              <div className="space-y-4 mb-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name *</label>
-                  <input
-                    type="text"
-                    value={bankForm.name}
-                    onChange={(e) => setBankForm((p) => ({ ...p, name: e.target.value }))}
-                    placeholder="e.g. Industrial and Commercial Bank of China"
-                    maxLength={255}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Bank Code *</label>
-                  <input
-                    type="text"
-                    value={bankForm.code}
-                    onChange={(e) => setBankForm((p) => ({ ...p, code: e.target.value }))}
-                    placeholder="e.g. ICBC"
-                    maxLength={20}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-                <div className="flex items-center gap-3">
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={bankForm.is_active}
-                      onChange={(e) => setBankForm((p) => ({ ...p, is_active: e.target.checked }))}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500" />
-                  </label>
-                  <span className="text-sm font-medium text-gray-700">Active</span>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <button onClick={() => setShowAddModal(false)} className="flex-1 px-6 py-2.5 border border-gray-300 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50">
-                  Cancel
+                <button className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors flex-shrink-0">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+                  </svg>
+                  Export
                 </button>
-                <button
-                  onClick={handleSaveBank}
-                  disabled={savingBank || !bankForm.name.trim() || !bankForm.code.trim()}
-                  className="flex-1 px-6 py-2.5 bg-emerald-500 text-white rounded-xl text-sm font-semibold hover:bg-emerald-600 disabled:opacity-50"
-                >
-                  {savingBank ? 'Saving...' : editingBank ? 'Update Bank' : 'Add Bank'}
-                </button>
+              </div>
+
+              {/* Payout table */}
+              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <TableHead cols={['Timestamp', 'User', 'Bank', 'Account', 'Amount', 'Status', 'Reference']} />
+                    <tbody className="divide-y divide-gray-50">
+                      {loadingPayouts ? (
+                        [...Array(5)].map((_, i) => (
+                          <tr key={i}>{[...Array(7)].map((_, j) => (
+                            <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>
+                          ))}</tr>
+                        ))
+                      ) : payouts.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="px-5 py-12 text-center text-sm text-gray-400">
+                            No payout transactions found
+                          </td>
+                        </tr>
+                      ) : (
+                        payouts.map((tx, i) => (
+                          <tr key={(tx as any).id ?? i} className="hover:bg-gray-50/50 transition-colors">
+                            <td className="px-5 py-4">
+                              <p className="text-xs text-gray-700 whitespace-nowrap">
+                                {(tx as any).created_at ? new Date(String((tx as any).created_at)).toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
+                              </p>
+                              <p className="text-xs text-gray-400">{(tx as any).time_ago ?? '—'}</p>
+                            </td>
+                            <td className="px-5 py-4">
+                              <UserCell
+                                name={String((tx as any).user ?? (tx as any).user_name ?? '—')}
+                                email={String((tx as any).email ?? '')}
+                              />
+                            </td>
+                            <td className="px-5 py-4 text-sm text-gray-700 whitespace-nowrap">{String((tx as any).bank ?? '—')}</td>
+                            <td className="px-5 py-4 text-sm text-gray-600 font-mono">{String((tx as any).account_number ?? (tx as any).account ?? '—')}</td>
+                            <td className="px-5 py-4 text-sm font-bold" style={{ color: '#009F51' }}>
+                              {String((tx as any).currency ?? '')} {String((tx as any).amount ?? '—')}
+                            </td>
+                            <td className="px-5 py-4">
+                              <StatusBadge status={String((tx as any).status ?? 'unknown')} />
+                            </td>
+                            <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{String((tx as any).reference ?? '—')}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <Pagination
+                  currentPage={payoutPage}
+                  totalPages={totalPayoutPages}
+                  onChange={setPayoutPage}
+                  loading={loadingPayouts}
+                  from={payoutPagination?.from}
+                  to={payoutPagination?.to}
+                  total={payoutPagination?.total}
+                />
               </div>
             </div>
-          </div>
-        </>
-      )}
+          )}
+
+          {/* ══════════════════════════════════════
+              HANDSHAKE TAB
+          ══════════════════════════════════════ */}
+          {activeTab === 'handshake' && (
+            <div className="p-8 space-y-6">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Bank Handshake &amp; Reconciliation</h2>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <TableHead cols={['Timestamp', 'Bank', 'Status', 'Response Time', 'Message']} />
+                    <tbody className="divide-y divide-gray-50">
+                      {/* No endpoint available — empty state */}
+                      <tr>
+                        <td colSpan={5} className="px-5 py-12 text-center text-sm text-gray-400">
+                          No endpoint available
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      </div>
     </div>
   );
 }
