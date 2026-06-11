@@ -173,6 +173,8 @@ function SystemRateModal({ pair, onClose }: { pair: string; onClose: () => void 
   const [sellRate, setSellRate] = useState('0.00462');
   const [reason,   setReason]   = useState('');
 
+  
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-end">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
