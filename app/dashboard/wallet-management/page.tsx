@@ -267,6 +267,8 @@ export default function WalletManagementPage() {
   const [topups,              setTopups]              = useState<TopupTransaction[] | null>(null);
   const [swaps,               setSwaps]               = useState<SwapTransaction[] | null>(null);
   const [ledger,              setLedger]              = useState<LedgerEntry[] | null>(null);
+  const [ledgerPage,          setLedgerPage]          = useState(1);
+  const [ledgerMeta,          setLedgerMeta]          = useState<{ current_page: number; last_page: number; from: number | null; to: number | null; total: number } | null>(null);
   const [loadingTopups,       setLoadingTopups]       = useState(false);
   const [loadingSwaps,        setLoadingSwaps]        = useState(false);
   const [loadingLedger,       setLoadingLedger]       = useState(false);
@@ -346,11 +348,12 @@ export default function WalletManagementPage() {
     } catch { /* silent */ } finally { setLoadingSwaps(false); }
   }, []);
 
-  const fetchLedger = useCallback(async (search = '') => {
+  const fetchLedger = useCallback(async (search = '', page = 1) => {
     try {
       setLoadingLedger(true);
-      const res = await walletApi.getLedger({ search: search || undefined, per_page: 15 });
+      const res = await walletApi.getLedger({ search: search || undefined, per_page: 15, page } as Parameters<typeof walletApi.getLedger>[0]);
       setLedger(res.data?.data ?? []);
+      if (res.data?.meta) setLedgerMeta(res.data.meta);
     } catch { /* silent */ } finally { setLoadingLedger(false); }
   }, []);
 
@@ -360,10 +363,10 @@ export default function WalletManagementPage() {
     if (mainTab === 'currency-wallets' && cwSubTab === 'wallets') fetchCurrencyWallets(selectedCurrency, currentPage, walletSearch);
     if (mainTab === 'currency-wallets' && cwSubTab === 'topup') fetchTopups(topupSearch, topupFilter);
     if (mainTab === 'currency-wallets' && cwSubTab === 'swap') fetchSwaps(swapSearch, swapFilter);
-    if (mainTab === 'ledger') fetchLedger(ledgerSearch);
+    if (mainTab === 'ledger') fetchLedger(ledgerSearch, ledgerPage);
     if (mainTab === 'reconciliation') fetchReconciliation();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mainTab, cwSubTab, selectedCurrency, currentPage, topupSearch, topupFilter, swapSearch, swapFilter, ledgerSearch]);
+  }, [mainTab, cwSubTab, selectedCurrency, currentPage, topupSearch, topupFilter, swapSearch, swapFilter, ledgerSearch, ledgerPage]);
 
   const handleWalletSearch = (val: string) => {
     setWalletSearch(val);
@@ -757,29 +760,77 @@ export default function WalletManagementPage() {
               <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full">
-                    <thead><tr className="border-b border-gray-100">{['Time','User','Wallet','Type','Amount','Reference','Description'].map((h) => <th key={h} className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>)}</tr></thead>
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        {['Time','User','Wallet','Action','Amount','Balance Before','Balance After','Tx Type','Status','Reference'].map((h) => (
+                          <th key={h} className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
                     <tbody className="divide-y divide-gray-50">
                       {loadingLedger
                         ? [...Array(5)].map((_, i) => (
-                            <tr key={i}>{[...Array(7)].map((_, j) => <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                            <tr key={i}>{[...Array(10)].map((_, j) => <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
                           ))
                         : !ledger || ledger.length === 0
-                          ? <tr><td colSpan={7} className="px-5 py-16 text-center text-sm text-gray-400">No ledger entries available</td></tr>
-                          : ledger.map((row) => (
-                              <tr key={String(row.id)} className="hover:bg-gray-50/50 transition-colors">
-                                <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{fmtDate(row.createdAt)}</td>
-                                <td className="px-5 py-4"><UserCell name={row.user ? `${row.user.firstName} ${row.user.lastName}`.trim() : '—'} email={row.user?.changpayId ?? row.user?.email ?? ''} initials={null} /></td>
-                                <td className="px-5 py-4 text-sm text-gray-600 font-mono text-xs">{row.walletId?.slice(0, 8).toUpperCase() ?? '—'}</td>
-                                <td className="px-5 py-4"><span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold capitalize ${row.action === 'credit' || row.action === 'release' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>{row.action}</span></td>
-                                <td className="px-5 py-4 text-sm font-semibold text-gray-900">{currencySymbol(row.currency)}{Number(row.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
-                                <td className="px-5 py-4 text-xs text-gray-500 font-mono">{row.reference}</td>
-                                <td className="px-5 py-4 text-sm text-gray-500">{row.description ?? '—'}</td>
-                              </tr>
-                            ))
+                          ? <tr><td colSpan={10} className="px-5 py-16 text-center text-sm text-gray-400">No ledger entries available</td></tr>
+                          : ledger.map((row, idx) => {
+                              const sym = currencySymbol(row.wallet.currency);
+                              const txStatus = row.transaction.status;
+                              const statusClass =
+                                txStatus === 'completed' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
+                                txStatus === 'failed'    ? 'bg-red-50 text-red-500 border-red-200' :
+                                                          'bg-amber-50 text-amber-600 border-amber-200';
+                              return (
+                                <tr key={`${row.transaction.reference}-${idx}`} className="hover:bg-gray-50/50 transition-colors">
+                                  <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{fmtDate(row.createdAt)}</td>
+                                  <td className="px-5 py-4">
+                                    <UserCell
+                                      name={`${row.wallet.user.firstName} ${row.wallet.user.lastName}`.trim()}
+                                      initials={null}
+                                    />
+                                  </td>
+                                  <td className="px-5 py-4">
+                                    <p className="text-xs font-mono text-gray-700">{row.wallet.id.slice(0, 8).toUpperCase()}</p>
+                                    <p className="text-xs text-gray-400">{row.wallet.currency}</p>
+                                  </td>
+                                  <td className="px-5 py-4">
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold capitalize ${row.action === 'credit' || row.action === 'release' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+                                      {row.action}
+                                    </span>
+                                  </td>
+                                  <td className="px-5 py-4 text-sm font-semibold text-gray-900 whitespace-nowrap">
+                                    {sym}{Number(row.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                  </td>
+                                  <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">
+                                    {sym}{Number(row.balanceBefore).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                  </td>
+                                  <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">
+                                    {sym}{Number(row.balanceAfter).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                  </td>
+                                  <td className="px-5 py-4 text-xs text-gray-600 capitalize">{row.transaction.type}</td>
+                                  <td className="px-5 py-4">
+                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border capitalize ${statusClass}`}>
+                                      {txStatus}
+                                    </span>
+                                  </td>
+                                  <td className="px-5 py-4 text-xs text-gray-500 font-mono">{row.transaction.reference}</td>
+                                </tr>
+                              );
+                            })
                       }
                     </tbody>
                   </table>
                 </div>
+                <Pagination
+                  currentPage={ledgerPage}
+                  totalPages={ledgerMeta?.last_page ?? 1}
+                  onChange={(p) => setLedgerPage(p)}
+                  loading={loadingLedger}
+                  from={ledgerMeta?.from ?? undefined}
+                  to={ledgerMeta?.to ?? undefined}
+                  total={ledgerMeta?.total}
+                />
               </div>
             </div>
           )}

@@ -650,15 +650,21 @@ export interface SwapTransaction {
 }
 
 export interface LedgerEntry {
-  id: string | number;
   action: 'debit' | 'credit' | 'hold' | 'release';
   amount: string;
-  currency: string;
-  walletId: string;
-  reference: string;
-  description?: string;
+  balanceBefore: string;
+  balanceAfter: string;
+  wallet: {
+    id: string;
+    currency: string;
+    user: { firstName: string; lastName: string };
+  };
+  transaction: {
+    reference: string;
+    type: string;
+    status: string;
+  };
   createdAt: string;
-  user?: { firstName: string; lastName: string; email: string; changpayId: string | null } | null;
 }
 
 // ─── Wallet API ───────────────────────────────────────────────────────────────
@@ -703,7 +709,7 @@ export const walletApi = {
       { method: 'POST' }
     ),
 
-  getLedger: (params?: { action?: string; date_from?: string; date_to?: string; per_page?: number; search?: string; wallet_id?: string }) => {
+  getLedger: (params?: { action?: string; date_from?: string; date_to?: string; page?: number; per_page?: number; search?: string; wallet_id?: string }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null)
       .map(([k, v]) => [k, String(v)]) as [string, string][];
