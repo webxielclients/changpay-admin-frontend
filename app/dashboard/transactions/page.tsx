@@ -28,6 +28,20 @@ function fmtGMT(s?: string | null) {
   return new Date(s).toUTCString().replace('GMT', 'GMT');
 }
 function dash(v: any) { return (v == null || v === '') ? '—' : String(v); }
+function currencySymbol(c?: string) {
+  const code = (c ?? '').toUpperCase();
+  if (code === 'YAN' || code === 'CNY' || code === 'YUAN') return '¥';
+  if (code === 'USD') return '$';
+  if (code === 'NGN') return '₦';
+  return code ? `${code} ` : '';
+}
+function fmtPayoutMethod(m?: string) {
+  const s = (m ?? '').toLowerCase().replace(/[-_\s]+/g, '');
+  if (s === 'alipay') return 'Alipay';
+  if (s === 'wechatpay' || s === 'wechat') return 'WeChat Pay';
+  if (s === 'banktransfer' || s === 'bank') return 'Bank Transfer';
+  return m ?? '—';
+}
 
 /* ── STATUS BADGE — Figma outlined ── */
 function StatusBadge({ status }: { status?: string }) {
@@ -903,28 +917,29 @@ export default function TransactionsPage() {
                       from={chinaPag?.from} to={chinaPag?.to} total={chinaPag?.total}
                       page={chinaPage} lastPage={chinaPag?.last_page ?? 1} onPage={setChinaPage}>
                       {chinaTxs.map(tx => {
-                        const u = (tx as any).user ?? {};
-                        const name = [u.firstName ?? u.first_name, u.lastName ?? u.last_name].filter(Boolean).join(' ') || u.email || '—';
+                        const sym = currencySymbol(tx.currency);
+                        const receiverLabel = tx.supplier?.bank?.name ?? fmtPayoutMethod(tx.supplier?.payoutMethod ?? tx.payoutMethod);
                         return (
                           <tr key={tx.id} className="hover:bg-gray-50/60 transition-colors">
                             <td className="px-4 py-3.5 pl-6 font-mono text-xs text-gray-700 whitespace-nowrap">{String(tx.reference ?? tx.id).slice(0,9)}</td>
                             <td className="px-4 py-3.5 whitespace-nowrap">
-                              <div className="flex items-center gap-2.5">
-                                <Avatar name={name} uid={tx.id}/>
-                                <div><p className="text-sm font-semibold text-gray-900 leading-tight">{name}</p><p className="text-[11px] text-gray-400">{u.changpayId ?? u.changpay_id ?? ''}</p></div>
-                              </div>
+                              <span className="text-gray-400 text-sm">—</span>
                             </td>
-                            <td className="px-4 py-3.5 text-sm font-semibold whitespace-nowrap" style={{ color: '#009F51' }}>{tx.amount ?? '—'}</td>
+                            <td className="px-4 py-3.5 text-sm font-semibold whitespace-nowrap" style={{ color: '#009F51' }}>
+                              {tx.amount != null ? `${sym}${Number(tx.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                            </td>
                             <td className="px-4 py-3.5 whitespace-nowrap">
                               {tx.supplier
-                                ? <><p className="text-xs text-gray-800 font-medium">{tx.supplier.bank?.name ?? 'Bank Transfer'}</p><p className="text-[10px] text-gray-400">····{String(tx.supplier.accountNumber ?? '').slice(-4)}</p></>
+                                ? <><p className="text-xs text-gray-800 font-medium">{receiverLabel}</p><p className="text-[10px] text-gray-400">{tx.supplier.name} · ····{String(tx.supplier.accountNumber ?? '').slice(-4)}</p></>
                                 : <span className="text-gray-400 text-sm">—</span>}
                             </td>
                             <td className="px-4 py-3.5 text-sm text-gray-600 whitespace-nowrap">{tx.exchangeRate ?? '—'}</td>
-                            <td className="px-4 py-3.5 text-sm text-gray-600 whitespace-nowrap">{tx.fee ?? '—'}</td>
+                            <td className="px-4 py-3.5 text-sm text-gray-600 whitespace-nowrap">
+                              {tx.fee != null ? `${sym}${Number(tx.fee).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                            </td>
                             <td className="px-4 py-3.5 whitespace-nowrap"><StatusBadge status={tx.status}/></td>
                             <td className="px-4 py-3.5 text-xs text-gray-500 whitespace-nowrap">{fmtDT(tx.createdAt)}</td>
-                            <td className="px-4 py-3.5 whitespace-nowrap"><RiskBadge risk={(tx as any).risk}/></td>
+                            <td className="px-4 py-3.5 whitespace-nowrap"><span className="text-gray-400 text-sm">—</span></td>
                             <td className="px-4 py-3.5 pr-6 whitespace-nowrap">
                               <button onClick={() => setPanel({ id: tx.id, product: 'pay-china' })} className="text-sm font-semibold" style={{ color: '#339D88' }}>View</button>
                             </td>

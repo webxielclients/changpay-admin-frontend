@@ -542,7 +542,7 @@ export default function PromotionsPage() {
                         </div>
                         <div>
                           <p className="text-gray-500 mb-0.5">Revenue</p>
-                          <p className="text-base font-bold text-gray-900">{(promo as any).revenue ? `₦${Number((promo as any).revenue).toLocaleString()}` : '—'}</p>
+                          <p className="text-base font-bold text-gray-900">{promo.revenue != null ? `₦${Number(promo.revenue).toLocaleString()}` : '—'}</p>
                         </div>
                       </div>
 

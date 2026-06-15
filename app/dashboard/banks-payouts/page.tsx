@@ -8,6 +8,7 @@ import type {
   PaymentProviderStat,
   PayoutTransaction,
   PayoutStats,
+  HandshakeRecord,
 } from '@/lib/api/client';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
@@ -184,6 +185,10 @@ export default function BanksPayoutsPage() {
 
   const [error, setError] = useState<string | null>(null);
 
+  // Handshake
+  const [handshakes,       setHandshakes]       = useState<HandshakeRecord[] | null>(null);
+  const [loadingHandshakes,setLoadingHandshakes]= useState(false);
+
   // ── Fetchers ────────────────────────────────────────────────────────────────
   const fetchProviders = useCallback(async () => {
     try {
@@ -233,10 +238,26 @@ export default function BanksPayoutsPage() {
     }
   }, []);
 
+  const fetchHandshakes = useCallback(async () => {
+    try {
+      setLoadingHandshakes(true);
+      const res = await banksApi.getHandshakes({ per_page: 50 });
+      if (res?.status) {
+        const d = res.data as any;
+        if (Array.isArray(d)) setHandshakes(d);
+        else if (d && 'data' in d) setHandshakes(d.data ?? []);
+        else setHandshakes([]);
+      } else {
+        setHandshakes([]);
+      }
+    } catch { setHandshakes([]); } finally { setLoadingHandshakes(false); }
+  }, []);
+
   useEffect(() => {
     if (!isAuthenticated) return;
     if (activeTab === 'bank-status') fetchProviders();
     if (activeTab === 'payout') { fetchPayoutStats(); fetchPayouts(payoutPage, payoutSearch, payoutStatus); }
+    if (activeTab === 'handshake') fetchHandshakes();
   }, [activeTab, isAuthenticated]);
 
   useEffect(() => {
@@ -538,31 +559,37 @@ export default function BanksPayoutsPage() {
                           </td>
                         </tr>
                       ) : (
-                        payouts.map((tx, i) => (
-                          <tr key={(tx as any).id ?? i} className="hover:bg-gray-50/50 transition-colors">
-                            <td className="px-5 py-4">
-                              <p className="text-xs text-gray-700 whitespace-nowrap">
-                                {(tx as any).created_at ? new Date(String((tx as any).created_at)).toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
-                              </p>
-                              <p className="text-xs text-gray-400">{(tx as any).time_ago ?? '—'}</p>
-                            </td>
-                            <td className="px-5 py-4">
-                              <UserCell
-                                name={String((tx as any).user ?? (tx as any).user_name ?? '—')}
-                                email={String((tx as any).email ?? '')}
-                              />
-                            </td>
-                            <td className="px-5 py-4 text-sm text-gray-700 whitespace-nowrap">{String((tx as any).bank ?? '—')}</td>
-                            <td className="px-5 py-4 text-sm text-gray-600 font-mono">{String((tx as any).account_number ?? (tx as any).account ?? '—')}</td>
-                            <td className="px-5 py-4 text-sm font-bold" style={{ color: '#009F51' }}>
-                              {String((tx as any).currency ?? '')} {String((tx as any).amount ?? '—')}
-                            </td>
-                            <td className="px-5 py-4">
-                              <StatusBadge status={String((tx as any).status ?? 'unknown')} />
-                            </td>
-                            <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{String((tx as any).reference ?? '—')}</td>
-                          </tr>
-                        ))
+                        payouts.map((tx) => {
+                          const userName = tx.user ? `${tx.user.firstName} ${tx.user.lastName}`.trim() : '—';
+                          const userSub  = tx.user?.changpayId ?? tx.user?.email ?? '';
+                          const bankName = tx.bank?.name ?? tx.bank?.code ?? '—';
+                          const acctNum  = tx.account?.number ?? '—';
+                          const acctName = tx.account?.name;
+                          const ts = tx.timestamp ? new Date(tx.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+                          const currSymbol = tx.currency === 'NGN' ? '₦' : tx.currency === 'YAN' ? '¥' : '$';
+                          return (
+                            <tr key={tx.id} className="hover:bg-gray-50/50 transition-colors">
+                              <td className="px-5 py-4">
+                                <p className="text-xs text-gray-700 whitespace-nowrap">{ts}</p>
+                                {tx.completedAt && <p className="text-xs text-gray-400">Done: {new Date(tx.completedAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>}
+                              </td>
+                              <td className="px-5 py-4">
+                                <UserCell name={userName} email={userSub} />
+                              </td>
+                              <td className="px-5 py-4 text-sm text-gray-700 whitespace-nowrap">{bankName}</td>
+                              <td className="px-5 py-4">
+                                <p className="text-sm text-gray-600 font-mono">{acctNum}</p>
+                                {acctName && <p className="text-xs text-gray-400">{acctName}</p>}
+                              </td>
+                              <td className="px-5 py-4">
+                                <p className="text-sm font-bold" style={{ color: '#009F51' }}>{currSymbol}{Number(tx.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                                {tx.fee && Number(tx.fee) > 0 && <p className="text-xs text-gray-400">Fee: {currSymbol}{Number(tx.fee).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>}
+                              </td>
+                              <td className="px-5 py-4"><StatusBadge status={tx.status} /></td>
+                              <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{tx.reference}</td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -585,21 +612,42 @@ export default function BanksPayoutsPage() {
           ══════════════════════════════════════ */}
           {activeTab === 'handshake' && (
             <div className="p-8 space-y-6">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">Bank Handshake &amp; Reconciliation</h2>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900">Bank Handshake &amp; Health Checks</h2>
+                  <p className="text-sm text-gray-500 mt-0.5">Provider connectivity and health-check log</p>
+                </div>
+                <button onClick={fetchHandshakes} disabled={loadingHandshakes} className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 disabled:opacity-50 transition-colors">
+                  <svg className={`w-4 h-4 ${loadingHandshakes ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                  Refresh
+                </button>
               </div>
 
               <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full">
-                    <TableHead cols={['Timestamp', 'Bank', 'Status', 'Response Time', 'Message']} />
+                    <TableHead cols={['Timestamp', 'Provider', 'Status', 'Response Time', 'Message']} />
                     <tbody className="divide-y divide-gray-50">
-                      {/* No endpoint available — empty state */}
-                      <tr>
-                        <td colSpan={5} className="px-5 py-12 text-center text-sm text-gray-400">
-                          No endpoint available
-                        </td>
-                      </tr>
+                      {loadingHandshakes
+                        ? [...Array(4)].map((_, i) => (
+                            <tr key={i}>{[...Array(5)].map((_, j) => <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                          ))
+                        : !handshakes || handshakes.length === 0
+                          ? <tr><td colSpan={5} className="px-5 py-12 text-center text-sm text-gray-400">No handshake records available</td></tr>
+                          : handshakes.map((h) => (
+                              <tr key={h.id} className="hover:bg-gray-50/50 transition-colors">
+                                <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">
+                                  {h.timestamp ? new Date(h.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                                </td>
+                                <td className="px-5 py-4 text-sm font-semibold text-gray-900 capitalize">{h.provider}</td>
+                                <td className="px-5 py-4"><StatusBadge status={h.status} /></td>
+                                <td className="px-5 py-4 text-sm text-gray-600">{h.responseTime != null ? `${h.responseTime}ms` : '—'}</td>
+                                <td className="px-5 py-4 text-sm text-gray-500">{h.message ?? '—'}</td>
+                              </tr>
+                            ))
+                      }
                     </tbody>
                   </table>
                 </div>

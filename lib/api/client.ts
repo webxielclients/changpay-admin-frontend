@@ -43,11 +43,19 @@ async function request<T>(
     throw new Error('Session expired. Please log in again.');
   }
 
-  const json = await response.json();
+  const text = await response.text();
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    if (!response.ok) {
+      throw new Error(text || `Request failed (${response.status})`);
+    }
+    throw new Error(`Unexpected response format (${response.status})`);
+  }
 
   if (!response.ok) {
     const err = json as ApiErrorResponse;
-    // Surface first validation error if present
     if (err?.errors) {
       const firstKey = Object.keys(err.errors)[0];
       const firstMsg = err.errors[firstKey];
@@ -175,7 +183,6 @@ export const authApi = {
 // The page casts accordingly — see user-detail-page.tsx.
 export interface AdminUserRecord {
   last_login_at: string;
-  last_login_at: string;
   id: number;
   first_name: string;
   last_name: string;
@@ -223,6 +230,26 @@ export interface PaginatedResponse<T> {
   prev_page_url: string | null;
   to: number;
   total: number;
+}
+
+export interface MetaPaginatedResponse<T> {
+  data: T[];
+  links: {
+    first: string | null;
+    last: string | null;
+    prev: string | null;
+    next: string | null;
+  };
+  meta: {
+    current_page: number;
+    from: number | null;
+    last_page: number;
+    links: { url: string | null; label: string; page: number | null; active: boolean }[];
+    path: string;
+    per_page: number;
+    to: number | null;
+    total: number;
+  };
 }
 
 export interface AdminNote {
@@ -279,6 +306,7 @@ export const usersApi = {
       currency?: 'USD' | 'NGN' | 'YAN';
       type?: 'deposit' | 'withdrawal' | 'transfer';
       status?: string;
+      search?: string;
       per_page?: number;
       page?: number;
     }
@@ -287,26 +315,68 @@ export const usersApi = {
       .filter(([, v]) => v != null)
       .map(([k, v]) => [k, String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
-    return authedRequest<{ status: boolean; message: string; data: unknown }>(
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<UserTransactionItem> }>(
       `/users/${userId}/transactions${query}`
     );
   },
 };
 
+export interface UserTransactionItem {
+  id: number | string;
+  type: string;
+  category?: string;
+  amount: string | number;
+  currency: string;
+  status: string;
+  reference?: string;
+  channel?: string;
+  fee?: string;
+  created_at?: string;
+  createdAt?: string;
+  dateTime?: string;
+  risk?: string;
+}
+
 // ─── Dashboard types ──────────────────────────────────────────────────────────
 
+export interface CurrencyBalance {
+  count: number;
+  total_balance: number;
+  last_period_balance: number;
+  change_percent: number;
+  change_direction: 'up' | 'down';
+}
+
+export interface FxExposureRate {
+  from_currency: string;
+  to_currency: string;
+  rate: string;
+}
+
 export interface DashboardOverviewData {
-  users: { total: string; active: string; new_in_period: string };
-  wallets: unknown[];
-  alerts: { failed_transactions: number };
+  users: {
+    total: number;
+    active: number;
+    verified: number;
+    new_in_period: number;
+    change_percent: number;
+    change_direction: 'up' | 'down';
+  };
+  by_currency: {
+    USD: CurrencyBalance;
+    NGN: CurrencyBalance;
+    YAN: CurrencyBalance;
+  };
+  alerts: { failed_transactions: number; fraud_alerts: number };
   pending_actions: {
-    kyc_approvals: string;
+    kyc_approvals: number;
     failed_payouts: number;
     flagged_transactions: number;
     open_disputes: number;
     open_tickets: number;
   };
-  fx_exposure: unknown[];
+  fx_exposure: FxExposureRate[];
+  fx_exposure_summary: { USD: string; NGN: string; YAN: string };
 }
 
 export interface ChartDataPoint {
@@ -339,7 +409,23 @@ export interface ChartData {
   data: ChartDataPoint[];
 }
 
-export type RecentTransaction = ChartDataPoint;
+export interface RecentTransaction {
+  id: string;
+  sourceType: string;
+  sourceId: number;
+  client: {
+    name: string;
+    changpayId: string | null;
+    avatar: string | null;
+  };
+  type: string;
+  channel: string;
+  amount: number;
+  currency: string;
+  status: string;
+  dateTime: string;
+  risk: string;
+}
 
 // ─── Dashboard API ────────────────────────────────────────────────────────────
 
@@ -385,8 +471,50 @@ export interface ConversionRate {
   from_currency: string;
   to_currency: string;
   rate: string;
+  buy_rate?: string;
+  sell_rate?: string;
   is_active: boolean;
+  is_manually_overridden?: boolean;
   updated_at: string;
+}
+
+export interface SpreadConfig {
+  id: number;
+  pair: string;
+  fromCurrency: string;
+  toCurrency: string;
+  baseSpread: number;
+  dynamicSpread: number;
+  totalSpread: number;
+  minSpread: number;
+  maxSpread: number;
+  isActive: boolean;
+  updatedAt: string;
+}
+
+export interface CryptoRateMarkup {
+  id: number;
+  cryptoCurrency: string;
+  ratePercentage: string;
+  isActive: boolean;
+  updatedAt: string;
+}
+
+export interface FxOverrideResult {
+  id: number;
+  pair: string;
+  fromCurrency: string;
+  toCurrency: string;
+  rate: string;
+  buyRate: string;
+  sellRate: string;
+  spreadPercent: number;
+  source: string;
+  isActive: boolean;
+  isManuallyOverridden: boolean;
+  isDerived: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CryptoRate {
@@ -420,24 +548,44 @@ export const fxApi = {
 
   getConversionRates: () =>
     authedRequest<{ status: boolean; message: string; data: ConversionRate[] }>('/conversion-rates'),
+
+  getSpreads: () =>
+    authedRequest<{ status: boolean; message: string; data: SpreadConfig[] }>('/fx/spreads'),
+
+  getCryptoRateMarkups: () =>
+    authedRequest<{ status: boolean; message: string; data: CryptoRateMarkup[] }>('/crypto-rates'),
+
+  applyOverride: (body: { from_currency: string; to_currency: string; buy_rate: number; sell_rate: number; reason: string }) =>
+    authedRequest<{ status: boolean; message: string; data: FxOverrideResult }>('/fx/override', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  releaseOverride: (rateId: number) =>
+    authedRequest<{ status: boolean; message: string; data: FxOverrideResult }>(`/fx/override/${rateId}`, {
+      method: 'DELETE',
+    }),
 };
 
 // ─── Wallet types ─────────────────────────────────────────────────────────────
 
 export interface WalletRecord {
-  id: number;
-  user_id: number;
-  uid: string;
-  is_active: boolean;
-  is_default: boolean;
-  is_verified: boolean;
-  is_locked: boolean;
+  id: string;
   currency: 'USD' | 'NGN' | 'YAN';
   balance: string;
-  created_at: string;
-  updated_at: string;
-  available_balance: string;
-  status: string;
+  availableBalance: string;
+  isActive: boolean;
+  isLocked: boolean;
+  isVerified: boolean;
+  user: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    changpayId: string | null;
+    avatar: string | null;
+  } | null;
+  lastActivityAt: string | null;
+  createdAt: string;
 }
 
 export interface WalletStats {
@@ -445,20 +593,72 @@ export interface WalletStats {
   active_wallets: number;
   locked_wallets: number;
   by_currency: {
-    USD: { count: string; total_balance: string };
-    NGN: { count: string; total_balance: string };
-    YAN: { count: string; total_balance: string };
+    USD: { count: number; total_balance: string };
+    NGN: { count: number; total_balance: string };
+    YAN: { count: number; total_balance: string };
   };
+  today: {
+    transactions_count: number;
+    topups_total: Record<string, number>;
+    conversions_total: Record<string, number>;
+  };
+  recent_activity: {
+    action: 'credit' | 'debit';
+    amount: string;
+    currency: string;
+    label: string;
+    walletId: string;
+    user: string;
+    reference: string;
+    createdAt: string;
+  }[];
 }
 
 export interface CurrencyWalletData {
   stats: {
     total_wallets: number;
-    total_balance: string | null;
+    total_balance: string | number | null;
     active_wallets: number;
     locked_wallets: number;
   };
-  wallets: PaginatedResponse<WalletRecord>;
+  wallets: MetaPaginatedResponse<WalletRecord>;
+}
+
+export interface TopupTransaction {
+  id: string | number;
+  reference: string;
+  amount: string;
+  currency: string;
+  status: string;
+  provider: string;
+  createdAt: string;
+  user?: { firstName: string; lastName: string; email: string; changpayId: string | null; avatar: string | null } | null;
+  wallet?: { id: string; currency: string } | null;
+}
+
+export interface SwapTransaction {
+  id: string | number;
+  reference: string;
+  fromCurrency: string;
+  toCurrency: string;
+  fromAmount: string;
+  toAmount: string;
+  rate: string;
+  status: string;
+  createdAt: string;
+  user?: { firstName: string; lastName: string; email: string; changpayId: string | null; avatar: string | null } | null;
+}
+
+export interface LedgerEntry {
+  id: string | number;
+  action: 'debit' | 'credit' | 'hold' | 'release';
+  amount: string;
+  currency: string;
+  walletId: string;
+  reference: string;
+  description?: string;
+  createdAt: string;
+  user?: { firstName: string; lastName: string; email: string; changpayId: string | null } | null;
 }
 
 // ─── Wallet API ───────────────────────────────────────────────────────────────
@@ -497,12 +697,61 @@ export const walletApi = {
     );
   },
 
-  toggleLock: (walletId: number) =>
+  toggleLock: (walletId: string) =>
     authedRequest<{ status: boolean; message: string; data: WalletRecord }>(
       `/wallets/${walletId}/toggle-lock`,
       { method: 'POST' }
     ),
+
+  getLedger: (params?: { action?: string; date_from?: string; date_to?: string; per_page?: number; search?: string; wallet_id?: string }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => [k, String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<LedgerEntry> | null }>(`/wallets/ledger${query}`);
+  },
+
+  getTopups: (params?: { currency?: string; date_from?: string; date_to?: string; per_page?: number; provider?: string; search?: string; status?: string; page?: number }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => [k, String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<TopupTransaction> | null }>(`/wallets/topups${query}`);
+  },
+
+  getSwaps: (params?: { currency?: string; date_from?: string; date_to?: string; from_currency?: string; to_currency?: string; per_page?: number; search?: string; status?: string; page?: number }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => [k, String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<SwapTransaction> | null }>(`/wallets/swaps${query}`);
+  },
+
+  getReconciliation: () =>
+    authedRequest<{ status: boolean; message: string; data: ReconciliationStatus }>('/wallets/reconciliation'),
+
+  runReconciliation: () =>
+    authedRequest<{ status: boolean; message: string; data: ReconciliationStatus }>(
+      '/wallets/reconciliation/run',
+      { method: 'POST' }
+    ),
 };
+
+export interface ReconciliationStatus {
+  is_reconciled: boolean;
+  total_wallets_checked: number;
+  discrepancies_count: number;
+  discrepancies: unknown[];
+  checked_at: string;
+  auto_job: {
+    schedule: string;
+    schedule_cron: string;
+    last_run_at: string;
+    last_status: string;
+    last_triggered_by: string;
+    next_run_at: string;
+  };
+}
 
 // ─── Roles types ──────────────────────────────────────────────────────────────
 
@@ -589,19 +838,29 @@ export interface PaymentProviderStat {
 }
 
 export interface PayoutTransaction {
-  id?: number;
-  reference?: string;
-  user?: string;
-  email?: string;
-  bank?: string;
-  account_number?: string;
-  amount?: string;
-  currency?: string;
-  status?: string;
-  provider?: string;
-  created_at?: string;
-  updated_at?: string;
-  [key: string]: unknown;
+  id: number;
+  sourceType: string;
+  sourceId: number;
+  reference: string;
+  timestamp: string;
+  amount: string;
+  fee: string;
+  currency: string;
+  status: string;
+  provider: string;
+  user: { id: number; firstName: string; lastName: string; email: string; changpayId: string | null } | null;
+  bank: { code: string | null; name: string | null } | null;
+  account: { number: string | null; name: string | null } | null;
+  completedAt: string | null;
+}
+
+export interface HandshakeRecord {
+  id: number;
+  provider: string;
+  status: string;
+  responseTime: number | null;
+  message: string | null;
+  timestamp: string;
 }
 
 export interface PayoutStats {
@@ -676,6 +935,15 @@ export const banksApi = {
   /** GET /banks/payouts/stats — aggregate payout stats */
   getPayoutStats: () =>
     authedRequest<{ status: boolean; message: string; data: PayoutStats }>('/banks/payouts/stats'),
+
+  /** GET /banks/handshakes — bank health-check / handshake log */
+  getHandshakes: (params?: { provider?: string; status?: string; date_from?: string; date_to?: string; per_page?: number }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => [k, String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: HandshakeRecord[] | null }>(`/banks/handshakes${query}`);
+  },
 };
 
 // ─── KYC/KYB types ────────────────────────────────────────────────────────────
@@ -797,6 +1065,13 @@ export const kycApi = {
       { method: 'POST', body: JSON.stringify({ reason }) }
     ),
 
+  /** POST /kyb/{id}/request-resubmit — body: { reason } */
+  requestResubmit: (id: number, reason: string) =>
+    authedRequest<{ status: boolean; message: string; data: KYBVerification }>(
+      `/kyb/${id}/request-resubmit`,
+      { method: 'POST', body: JSON.stringify({ reason }) }
+    ),
+
   /** POST /kyc/{kycId}/approve */
   approveKYC: (kycId: number) =>
     authedRequest<{ status: boolean; message: string; data: KYCVerification }>(
@@ -839,6 +1114,8 @@ export interface Promotion {
   endDate: string | null;
   usageCount: number;
   usageLimit: number | null;
+  redemptions: number;
+  revenue: number;
   createdAt: string;
   creator: PromotionCreator | null;
 }
@@ -1261,13 +1538,14 @@ export interface PayToChinaSupplier {
   accountNumber: string;
   phoneNumber: string;
   payoutMethod: string;
-  bank: PayToChinaSupplierBank;
+  bank: PayToChinaSupplierBank | null;
   createdAt: string;
 }
 
 export interface PayToChinaTransaction {
   id: number;
   reference: string;
+  direction?: string;
   status: string;
   amount: string;
   amountReceived: string;

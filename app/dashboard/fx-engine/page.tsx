@@ -2,27 +2,14 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '@/store/authStore';
-import { fxApi } from '@/lib/api/client';
-import type { ConversionRate, FxOverviewSummary } from '@/lib/api/client';
+import { fxApi, walletApi } from '@/lib/api/client';
+import type { ConversionRate, FxOverviewSummary, SpreadConfig, CryptoRateMarkup, WalletRecord, CurrencyWalletData } from '@/lib/api/client';
 import DashboardHeader from '@/components/DashboardHeader';
 import Sidebar from '@/components/Sidebar';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type MainTab    = 'overview' | 'usd-wallet' | 'ngn-wallet' | 'yuan-wallet';
-type SubTab     = 'live-rates' | 'spread' | 'rate-logs';
-
-interface RateLog {
-  ts: string;
-  action: string;
-  buyRate: string;
-  sellRate: string;
-  buyFrom: string;
-  sellFrom: string;
-  admin: string;
-  adminId: string;
-  source: string;
-  systemUser: boolean;
-}
+type MainTab = 'overview' | 'usd-wallet' | 'ngn-wallet' | 'yuan-wallet';
+type SubTab  = 'live-rates' | 'spread' | 'rate-logs';
 
 interface LatestChange {
   timestamp: string;
@@ -33,13 +20,10 @@ interface LatestChange {
   reason?: string;
 }
 
-interface SpreadRow {
-  pair: string;
-  base: string;
-  dynamic: string;
-  total: string;
-  minMax: string;
-  active: boolean;
+function fmtDate(s?: string | null) {
+  if (!s) return '—';
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? s : d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
@@ -108,9 +92,12 @@ interface RateCardProps {
   overrideEnabled: boolean;
   onToggleOverride: (v: boolean) => void;
   onOpenOverride: () => void;
+  hasActiveOverride: boolean;
+  onRelease: () => void;
+  releasingThis: boolean;
 }
 
-function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride }: RateCardProps) {
+function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride, hasActiveOverride, onRelease, releasingThis }: RateCardProps) {
   return (
     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
       {/* Header */}
@@ -125,6 +112,11 @@ function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride }: R
         <div className="flex items-center gap-2">
           <ChangeBadge value={(rate as any).change} />
           <ActiveBadge isActive={rate.is_active} />
+          {rate.is_manually_overridden && (
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border bg-amber-50 text-amber-700 border-amber-200">
+              Overridden
+            </span>
+          )}
         </div>
       </div>
 
@@ -138,11 +130,11 @@ function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride }: R
       <div className="grid grid-cols-2 gap-3 mx-6 mb-4">
         <div className="bg-[#F8F9FA] rounded-xl px-5 py-4">
           <p className="text-xs text-gray-500 mb-1">Buy Rate</p>
-          <p className="text-2xl font-bold text-emerald-500">{(rate as any).buy_rate ?? '—'}</p>
+          <p className="text-2xl font-bold text-emerald-500">{rate.buy_rate ?? (rate as any).buy_rate ?? '—'}</p>
         </div>
         <div className="bg-red-50 rounded-xl px-5 py-4">
           <p className="text-xs text-gray-500 mb-1">Sell Rate</p>
-          <p className="text-2xl font-bold text-red-400">{(rate as any).sell_rate ?? '—'}</p>
+          <p className="text-2xl font-bold text-red-400">{rate.sell_rate ?? (rate as any).sell_rate ?? '—'}</p>
         </div>
       </div>
 
@@ -156,24 +148,75 @@ function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride }: R
         </p>
       </div>
 
-      {/* Manual Override toggle */}
+      {/* Manual Override */}
       <div className="flex items-center justify-between mx-6 mb-6 bg-[#F8F9FA] rounded-xl px-5 py-3.5">
         <div>
           <p className="text-sm font-semibold text-gray-900">Manual Override</p>
           <p className="text-xs text-gray-400">Override automatic rate updates</p>
         </div>
-        <Toggle enabled={overrideEnabled} onChange={onToggleOverride} />
+        <div className="flex items-center gap-3">
+          {hasActiveOverride ? (
+            <button
+              onClick={onRelease}
+              disabled={releasingThis}
+              className="px-3 py-1.5 bg-red-500 text-white rounded-lg text-xs font-semibold hover:bg-red-600 disabled:opacity-50 transition-colors"
+            >
+              {releasingThis ? 'Releasing…' : 'Release Override'}
+            </button>
+          ) : (
+            <button
+              onClick={onOpenOverride}
+              className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-semibold hover:bg-emerald-600 transition-colors"
+            >
+              Set Override
+            </button>
+          )}
+          <Toggle enabled={overrideEnabled} onChange={onToggleOverride} />
+        </div>
       </div>
     </div>
   );
 }
 
-function SystemRateModal({ pair, onClose }: { pair: string; onClose: () => void }) {
-  const [buyRate,  setBuyRate]  = useState('0.00462');
-  const [sellRate, setSellRate] = useState('0.00462');
-  const [reason,   setReason]   = useState('');
+// ─── Override Modal ────────────────────────────────────────────────────────────
+function OverrideModal({ rate, onClose, onSuccess }: {
+  rate: ConversionRate;
+  onClose: () => void;
+  onSuccess: (rateId: number) => void;
+}) {
+  const [buyRate,    setBuyRate]    = useState('');
+  const [sellRate,   setSellRate]   = useState('');
+  const [reason,     setReason]     = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [err,        setErr]        = useState<string | null>(null);
 
-  
+  const handleSubmit = async () => {
+    if (!buyRate || !sellRate || !reason.trim()) {
+      setErr('All fields are required');
+      return;
+    }
+    try {
+      setSubmitting(true);
+      setErr(null);
+      const res = await fxApi.applyOverride({
+        from_currency: rate.from_currency,
+        to_currency: rate.to_currency,
+        buy_rate: Number(buyRate),
+        sell_rate: Number(sellRate),
+        reason,
+      });
+      if (res?.status && res.data?.id != null) {
+        onSuccess(res.data.id);
+        onClose();
+      } else {
+        setErr(res?.message ?? 'Override failed');
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Override failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-end">
@@ -185,8 +228,8 @@ function SystemRateModal({ pair, onClose }: { pair: string; onClose: () => void 
           </svg>
         </button>
         <div className="mb-8">
-          <h3 className="text-xl font-bold text-gray-900">System Rate</h3>
-          <p className="text-sm text-gray-500 mt-1">Currency Pair: <span className="font-semibold text-emerald-600">{pair}</span></p>
+          <h3 className="text-xl font-bold text-gray-900">Set Manual Override</h3>
+          <p className="text-sm text-gray-500 mt-1">Currency Pair: <span className="font-semibold text-emerald-600">{rate.pair}</span></p>
         </div>
         <div className="space-y-5 flex-1">
           {([
@@ -199,6 +242,7 @@ function SystemRateModal({ pair, onClose }: { pair: string; onClose: () => void 
                 type="number"
                 value={val}
                 onChange={(e) => set(e.target.value)}
+                placeholder="0.00"
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
               />
             </div>
@@ -213,6 +257,9 @@ function SystemRateModal({ pair, onClose }: { pair: string; onClose: () => void 
               className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-emerald-400"
             />
           </div>
+          {err && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">{err}</p>
+          )}
           <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
             <svg className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
@@ -221,8 +268,10 @@ function SystemRateModal({ pair, onClose }: { pair: string; onClose: () => void 
           </div>
         </div>
         <div className="mt-8 space-y-3">
-          <button onClick={onClose} className="w-full px-6 py-3 border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors">Cancel</button>
-          <button onClick={onClose} className="w-full px-6 py-3 bg-emerald-500 text-white rounded-xl text-sm font-semibold hover:bg-emerald-600 transition-colors">Apply Override</button>
+          <button onClick={onClose} disabled={submitting} className="w-full px-6 py-3 border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors disabled:opacity-50">Cancel</button>
+          <button onClick={handleSubmit} disabled={submitting} className="w-full px-6 py-3 bg-emerald-500 text-white rounded-xl text-sm font-semibold hover:bg-emerald-600 transition-colors disabled:opacity-60">
+            {submitting ? 'Applying…' : 'Apply Override'}
+          </button>
         </div>
       </div>
     </div>
@@ -230,10 +279,10 @@ function SystemRateModal({ pair, onClose }: { pair: string; onClose: () => void 
 }
 
 // ─── Configure Spread Modal ───────────────────────────────────────────────────
-function ConfigureSpreadModal({ pair, onClose }: { pair: string; onClose: () => void }) {
-  const [baseSpread, setBaseSpread] = useState('0.2');
-  const [minSpread,  setMinSpread]  = useState('0.15');
-  const [maxSpread,  setMaxSpread]  = useState('0.5');
+function ConfigureSpreadModal({ spread, onClose }: { spread: SpreadConfig; onClose: () => void }) {
+  const [baseSpread, setBaseSpread] = useState(String(spread.baseSpread));
+  const [minSpread,  setMinSpread]  = useState(String(spread.minSpread));
+  const [maxSpread,  setMaxSpread]  = useState(String(spread.maxSpread));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-end">
@@ -246,7 +295,7 @@ function ConfigureSpreadModal({ pair, onClose }: { pair: string; onClose: () => 
         </button>
         <div className="mb-8">
           <h3 className="text-xl font-bold text-gray-900">Configure Spread</h3>
-          <p className="text-sm text-gray-500 mt-1">Currency Pair: <span className="font-semibold text-emerald-600">{pair}</span></p>
+          <p className="text-sm text-gray-500 mt-1">Currency Pair: <span className="font-semibold text-emerald-600">{spread.pair}</span></p>
         </div>
         <div className="space-y-5 flex-1">
           {([
@@ -277,13 +326,6 @@ function ConfigureSpreadModal({ pair, onClose }: { pair: string; onClose: () => 
   );
 }
 
-// ─── Static spread data (no endpoint yet) ────────────────────────────────────
-const MOCK_SPREAD: SpreadRow[] = [
-  { pair: 'USD/NGN', base: '0.50%', dynamic: '0.41%', total: '0.91%', minMax: '0.30% - 2.00%', active: true },
-  { pair: 'USD/RMB', base: '0.20%', dynamic: '0.08%', total: '0.28%', minMax: '0.15% - 0.50%', active: true },
-  { pair: 'NGN/RMB', base: '0.60%', dynamic: '0.27%', total: '0.87%', minMax: '0.40% - 1.50%', active: true },
-];
-
 // ─── Table header helper ──────────────────────────────────────────────────────
 function TableHead({ cols }: { cols: string[] }) {
   return (
@@ -310,21 +352,28 @@ function TableHead({ cols }: { cols: string[] }) {
 export default function FXEnginePage() {
   const { isAuthenticated } = useAuthStore();
 
-  const [mainTab,         setMainTab]         = useState<MainTab>('overview');
-  const [subTab,          setSubTab]          = useState<SubTab>('live-rates');
-  const [conversionRates, setConversionRates] = useState<ConversionRate[]>([]);
-  const [summary,         setSummary]         = useState<FxOverviewSummary | null>(null);
-  const [isLoading,       setIsLoading]       = useState(true);
-  const [error,           setError]           = useState<string | null>(null);
-  const [lastUpdated,     setLastUpdated]     = useState('');
-  const [overrides,       setOverrides]       = useState<Record<string, boolean>>({});
-  const [logPair,         setLogPair]         = useState('USD/NGN');
-  const [logRange,        setLogRange]        = useState('All Time');
-  const [rateLogs,        setRateLogs]        = useState<RateLog[]>([]);
-  const [latestChange,    setLatestChange]    = useState<LatestChange | null>(null);
-  const [logsLoading,     setLogsLoading]     = useState(false);
-  const [systemRateModal,   setSystemRateModal]   = useState<string | null>(null);
-  const [configSpreadModal, setConfigSpreadModal] = useState<string | null>(null);
+  const [mainTab,           setMainTab]           = useState<MainTab>('overview');
+  const [subTab,            setSubTab]            = useState<SubTab>('live-rates');
+  const [conversionRates,   setConversionRates]   = useState<ConversionRate[]>([]);
+  const [summary,           setSummary]           = useState<FxOverviewSummary | null>(null);
+  const [isLoading,         setIsLoading]         = useState(true);
+  const [error,             setError]             = useState<string | null>(null);
+  const [lastUpdated,       setLastUpdated]       = useState('');
+  const [overrides,         setOverrides]         = useState<Record<string, boolean>>({});
+  const [appliedOverrides,  setAppliedOverrides]  = useState<Record<string, number>>({});
+  const [releasingOverride, setReleasingOverride] = useState<string | null>(null);
+  const [overrideModal,     setOverrideModal]     = useState<ConversionRate | null>(null);
+  const [spreads,           setSpreads]           = useState<SpreadConfig[] | null>(null);
+  const [loadingSpreads,    setLoadingSpreads]    = useState(false);
+  const [cryptoRates,       setCryptoRates]       = useState<CryptoRateMarkup[] | null>(null);
+  const [loadingCryptoRates,setLoadingCryptoRates]= useState(false);
+  const [latestChange]                            = useState<LatestChange | null>(null);
+  const [configSpreadModal, setConfigSpreadModal] = useState<SpreadConfig | null>(null);
+  const [fxWalletData,      setFxWalletData]      = useState<CurrencyWalletData | null>(null);
+  const [loadingFxWallets,  setLoadingFxWallets]  = useState(false);
+  const [fxWalletPage,      setFxWalletPage]      = useState(1);
+  const [fxWalletSearch,    setFxWalletSearch]    = useState('');
+  const [togglingWalletId,  setTogglingWalletId]  = useState<string | null>(null);
 
   const fetchOverview = useCallback(async () => {
     try {
@@ -335,9 +384,6 @@ export default function FXEnginePage() {
         setConversionRates(res.data.conversion_rates ?? []);
         setSummary(res.data.summary ?? null);
         setLastUpdated(new Date().toLocaleTimeString());
-        if ((res.data.conversion_rates ?? []).length > 0) {
-          setLogPair(res.data.conversion_rates[0].pair);
-        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load FX data');
@@ -346,7 +392,67 @@ export default function FXEnginePage() {
     }
   }, []);
 
+  const fetchSpreads = useCallback(async () => {
+    try {
+      setLoadingSpreads(true);
+      const res = await fxApi.getSpreads();
+      setSpreads(res?.status ? (res.data ?? []) : []);
+    } catch { setSpreads([]); } finally { setLoadingSpreads(false); }
+  }, []);
+
+  const fetchCryptoRates = useCallback(async () => {
+    try {
+      setLoadingCryptoRates(true);
+      const res = await fxApi.getCryptoRateMarkups();
+      setCryptoRates(res?.status ? (res.data ?? []) : []);
+    } catch { setCryptoRates([]); } finally { setLoadingCryptoRates(false); }
+  }, []);
+
+  const fetchFxWallets = useCallback(async (currency: 'USD' | 'NGN' | 'YAN', page: number, search: string) => {
+    try {
+      setLoadingFxWallets(true);
+      const res = await walletApi.getWalletsByCurrency(currency, { page, per_page: 20, search: search || undefined });
+      setFxWalletData(res?.status ? (res.data ?? null) : null);
+    } catch { setFxWalletData(null); } finally { setLoadingFxWallets(false); }
+  }, []);
+
+  const handleToggleFxWallet = useCallback(async (wallet: WalletRecord, currency: 'USD' | 'NGN' | 'YAN') => {
+    try {
+      setTogglingWalletId(wallet.id);
+      await walletApi.toggleLock(wallet.id);
+      await fetchFxWallets(currency, fxWalletPage, fxWalletSearch);
+    } catch { /* noop */ } finally { setTogglingWalletId(null); }
+  }, [fetchFxWallets, fxWalletPage, fxWalletSearch]);
+
+  const handleRelease = useCallback(async (pair: string) => {
+    const rateId = appliedOverrides[pair];
+    if (rateId == null) return;
+    try {
+      setReleasingOverride(pair);
+      await fxApi.releaseOverride(rateId);
+      setAppliedOverrides((prev) => { const n = { ...prev }; delete n[pair]; return n; });
+      setOverrides((prev) => ({ ...prev, [pair]: false }));
+    } catch { /* noop */ } finally { setReleasingOverride(null); }
+  }, [appliedOverrides]);
+
   useEffect(() => { fetchOverview(); }, [fetchOverview]);
+
+  useEffect(() => {
+    if (mainTab === 'overview' && subTab === 'spread') fetchSpreads();
+    if (mainTab === 'overview' && subTab === 'rate-logs') fetchCryptoRates();
+  }, [mainTab, subTab, fetchSpreads, fetchCryptoRates]);
+
+  useEffect(() => {
+    const cur = mainTab === 'usd-wallet' ? 'USD' : mainTab === 'ngn-wallet' ? 'NGN' : mainTab === 'yuan-wallet' ? 'YAN' : null;
+    if (cur) { setFxWalletData(null); setFxWalletPage(1); setFxWalletSearch(''); fetchFxWallets(cur, 1, ''); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainTab]);
+
+  useEffect(() => {
+    const cur = mainTab === 'usd-wallet' ? 'USD' : mainTab === 'ngn-wallet' ? 'NGN' : mainTab === 'yuan-wallet' ? 'YAN' : null;
+    if (cur) fetchFxWallets(cur, fxWalletPage, fxWalletSearch);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fxWalletPage, fxWalletSearch]);
 
   if (!isAuthenticated) return null;
 
@@ -377,9 +483,7 @@ export default function FXEnginePage() {
             <button
               onClick={() => setMainTab('overview')}
               className={`px-10 text-sm font-bold text-center transition-colors flex-shrink-0 ${
-                mainTab === 'overview'
-                  ? 'bg-emerald-500 text-white'
-                  : 'text-gray-700 hover:text-gray-900'
+                mainTab === 'overview' ? 'bg-emerald-500 text-white' : 'text-gray-700 hover:text-gray-900'
               }`}
             >
               Overview
@@ -391,9 +495,7 @@ export default function FXEnginePage() {
                   key={id}
                   onClick={() => setMainTab(id)}
                   className={`flex-1 py-4 text-sm font-bold text-center transition-colors ${
-                    mainTab === id
-                      ? 'bg-emerald-500 text-white'
-                      : 'text-gray-700 hover:text-gray-900'
+                    mainTab === id ? 'bg-emerald-500 text-white' : 'text-gray-700 hover:text-gray-900'
                   }`}
                 >
                   {label}
@@ -446,7 +548,6 @@ export default function FXEnginePage() {
           {/* ══════════════════ OVERVIEW ══════════════════ */}
           {mainTab === 'overview' && (
             <>
-
               {/* ── Live Rates */}
               {subTab === 'live-rates' && (
                 <div className="p-8 space-y-6">
@@ -476,8 +577,14 @@ export default function FXEnginePage() {
                           key={rate.id ?? idx}
                           rate={rate}
                           overrideEnabled={!!overrides[rate.pair]}
-                          onToggleOverride={(val) => setOverrides((prev) => ({ ...prev, [rate.pair]: val }))}
-                          onOpenOverride={() => setSystemRateModal(rate.pair)}
+                          onToggleOverride={(val) => {
+                            setOverrides((prev) => ({ ...prev, [rate.pair]: val }));
+                            if (val && !appliedOverrides[rate.pair]) setOverrideModal(rate);
+                          }}
+                          onOpenOverride={() => setOverrideModal(rate)}
+                          hasActiveOverride={appliedOverrides[rate.pair] != null}
+                          onRelease={() => handleRelease(rate.pair)}
+                          releasingThis={releasingOverride === rate.pair}
                         />
                       ))}
                     </div>
@@ -520,26 +627,33 @@ export default function FXEnginePage() {
                   <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full">
-                        <TableHead cols={['Currency Pair', 'Base Spread', 'Dynamic Spread', 'Total Spread', 'Min/Max', 'Status', 'Action']} />
+                        <TableHead cols={['Currency Pair', 'Base Spread', 'Dynamic Spread', 'Total Spread', 'Min / Max', 'Status', 'Action']} />
                         <tbody className="divide-y divide-gray-50">
-                          {MOCK_SPREAD.map((row) => (
-                            <tr key={row.pair} className="hover:bg-gray-50/50 transition-colors">
-                              <td className="px-5 py-4 text-sm font-semibold text-gray-900">{row.pair}</td>
-                              <td className="px-5 py-4 text-sm text-gray-700">{row.base}</td>
-                              <td className="px-5 py-4 text-sm text-gray-700">{row.dynamic}</td>
-                              <td className="px-5 py-4 text-sm font-semibold text-gray-900">{row.total}</td>
-                              <td className="px-5 py-4 text-sm text-gray-500">{row.minMax}</td>
-                              <td className="px-5 py-4"><ActiveBadge isActive={row.active} /></td>
-                              <td className="px-5 py-4">
-                                <button
-                                  onClick={() => setConfigSpreadModal(row.pair)}
-                                  className="text-sm font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
-                                >
-                                  Configure
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
+                          {loadingSpreads
+                            ? [...Array(3)].map((_, i) => (
+                                <tr key={i}>{[...Array(7)].map((_, j) => <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                              ))
+                            : !spreads || spreads.length === 0
+                              ? <tr><td colSpan={7} className="px-5 py-12 text-center text-sm text-gray-400">No spread configuration available</td></tr>
+                              : spreads.map((row) => (
+                                  <tr key={row.id} className="hover:bg-gray-50/50 transition-colors">
+                                    <td className="px-5 py-4 text-sm font-semibold text-gray-900">{row.pair}</td>
+                                    <td className="px-5 py-4 text-sm text-gray-700">{row.baseSpread}%</td>
+                                    <td className="px-5 py-4 text-sm text-gray-700">{row.dynamicSpread}%</td>
+                                    <td className="px-5 py-4 text-sm font-semibold text-gray-900">{row.totalSpread}%</td>
+                                    <td className="px-5 py-4 text-sm text-gray-500">{row.minSpread}% – {row.maxSpread}%</td>
+                                    <td className="px-5 py-4"><ActiveBadge isActive={row.isActive} /></td>
+                                    <td className="px-5 py-4">
+                                      <button
+                                        onClick={() => setConfigSpreadModal(row)}
+                                        className="text-sm font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
+                                      >
+                                        Configure
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))
+                          }
                         </tbody>
                       </table>
                     </div>
@@ -556,22 +670,22 @@ export default function FXEnginePage() {
                 </div>
               )}
 
-              {/* ── Rate Logs */}
+              {/* ── Rate Logs (crypto rate markups) */}
               {subTab === 'rate-logs' && (
                 <div className="p-8 space-y-6">
                   <div>
-                    <h2 className="text-lg font-bold text-gray-900">Rate Change History</h2>
-                    <p className="text-sm text-gray-500 mt-0.5">Complete audit trail of all rate changes and admin actions</p>
+                    <h2 className="text-lg font-bold text-gray-900">Crypto Rate Markups</h2>
+                    <p className="text-sm text-gray-500 mt-0.5">Current markup rates applied to crypto currency conversions</p>
                   </div>
 
-                  {/* Stats — from API summary only */}
+                  {/* Summary stats from overview */}
                   <div className="grid grid-cols-4 gap-4">
                     {([
                       { label: 'Total Changes',    value: (summary as any)?.total_changes    ?? '—', color: 'text-gray-900' },
                       { label: 'Manual Overrides', value: (summary as any)?.manual_overrides ?? '—', color: 'text-gray-900' },
                       { label: 'Auto Updates',     value: (summary as any)?.auto_updates     ?? '—', color: 'text-emerald-600' },
-                      { label: 'Current Rate',     value: (summary as any)?.current_rate     ?? '—', color: 'text-gray-900' },
-                    ] as { label: string; value: string; color: string }[]).map((s) => (
+                      { label: 'Active Crypto',    value: summary?.active_crypto_rates       ?? '—', color: 'text-gray-900' },
+                    ] as { label: string; value: string | number; color: string }[]).map((s) => (
                       <div key={s.label} className="bg-white rounded-2xl border border-gray-200 p-5">
                         <p className="text-xs text-gray-500 mb-2">{s.label}</p>
                         <p className={`text-3xl font-bold ${s.color}`}>{s.value}</p>
@@ -579,104 +693,27 @@ export default function FXEnginePage() {
                     ))}
                   </div>
 
-                  {/* Filters */}
-                  <div className="flex items-end gap-4">
-                    <div className="flex-1">
-                      <label className="block text-xs text-gray-500 mb-1.5">Currency Pair</label>
-                      <div className="relative">
-                        <select
-                          value={logPair}
-                          onChange={(e) => setLogPair(e.target.value)}
-                          className="w-full appearance-none bg-white border border-gray-200 rounded-xl pl-4 pr-10 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
-                        >
-                          {['USD/NGN', 'USD/RMB', 'NGN/RMB', ...conversionRates.map((r) => r.pair)]
-                            .filter((v, i, a) => a.indexOf(v) === i)
-                            .map((p) => <option key={p}>{p}</option>)}
-                        </select>
-                        <svg className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
-                      </div>
-                    </div>
-                    <div className="flex-1">
-                      <label className="block text-xs text-gray-500 mb-1.5">Time Range</label>
-                      <div className="relative">
-                        <select
-                          value={logRange}
-                          onChange={(e) => setLogRange(e.target.value)}
-                          className="w-full appearance-none bg-white border border-gray-200 rounded-xl pl-4 pr-10 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
-                        >
-                          {['All Time', 'Last 24 Hours', 'Last 7 Days', 'Last 30 Days'].map((r) => <option key={r}>{r}</option>)}
-                        </select>
-                        <svg className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
-                      </div>
-                    </div>
-                    <button className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors whitespace-nowrap">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
-                      </svg>
-                      Export History
-                    </button>
-                  </div>
-
-                  {/* Log table — API data only */}
+                  {/* Crypto rates table */}
                   <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full">
-                        <TableHead cols={['Timestamp', 'Action', 'Buy Rate', 'Sell Rate', 'Admin', 'Source']} />
+                        <TableHead cols={['Crypto Currency', 'Rate Markup (%)', 'Status', 'Last Updated']} />
                         <tbody className="divide-y divide-gray-50">
-                          {logsLoading ? (
-                            [...Array(3)].map((_, i) => (
-                              <tr key={i}>
-                                {[...Array(6)].map((_, j) => (
-                                  <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>
-                                ))}
-                              </tr>
-                            ))
-                          ) : rateLogs.length === 0 ? (
-                            <tr>
-                              <td colSpan={6} className="px-5 py-12 text-center text-sm text-gray-400">
-                                No endpoint available
-                              </td>
-                            </tr>
-                          ) : (
-                            rateLogs.map((row, i) => (
-                              <tr key={i} className="hover:bg-gray-50/50 transition-colors">
-                                <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{row.ts}</td>
-                                <td className="px-5 py-4 text-sm font-medium text-gray-900">{row.action}</td>
-                                <td className="px-5 py-4">
-                                  <p className="text-sm font-semibold text-gray-900">{row.buyRate}</p>
-                                  <p className="text-xs text-gray-400">From: {row.buyFrom}</p>
-                                </td>
-                                <td className="px-5 py-4">
-                                  <p className="text-sm font-semibold text-gray-900">{row.sellRate}</p>
-                                  <p className="text-xs text-gray-400">From: {row.sellFrom}</p>
-                                </td>
-                                <td className="px-5 py-4">
-                                  <div className="flex items-center gap-2">
-                                    {row.systemUser ? (
-                                      <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
-                                        <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-                                        </svg>
-                                      </div>
-                                    ) : (
-                                      <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-xs font-bold text-blue-700">
-                                        {row.admin.length > 0 ? row.admin.charAt(0) : 'U'}
-                                      </div>
-                                    )}
-                                    <div>
-                                      <p className="text-sm font-medium text-gray-900">{row.admin}</p>
-                                      <p className="text-xs text-gray-400">{row.adminId}</p>
-                                    </div>
-                                  </div>
-                                </td>
-                                <td className="px-5 py-4">
-                                  <span className={`text-xs font-semibold ${row.source === 'Manual' ? 'text-amber-600' : 'text-emerald-600'}`}>
-                                    {row.source}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))
-                          )}
+                          {loadingCryptoRates
+                            ? [...Array(3)].map((_, i) => (
+                                <tr key={i}>{[...Array(4)].map((_, j) => <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                              ))
+                            : !cryptoRates || cryptoRates.length === 0
+                              ? <tr><td colSpan={4} className="px-5 py-12 text-center text-sm text-gray-400">No crypto rate data available</td></tr>
+                              : cryptoRates.map((row) => (
+                                  <tr key={row.id} className="hover:bg-gray-50/50 transition-colors">
+                                    <td className="px-5 py-4 text-sm font-semibold text-gray-900">{row.cryptoCurrency}</td>
+                                    <td className="px-5 py-4 text-sm text-gray-700">{row.ratePercentage}%</td>
+                                    <td className="px-5 py-4"><ActiveBadge isActive={row.isActive} /></td>
+                                    <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{fmtDate(row.updatedAt)}</td>
+                                  </tr>
+                                ))
+                          }
                         </tbody>
                       </table>
                     </div>
@@ -722,7 +759,7 @@ export default function FXEnginePage() {
                         </>
                       ) : (
                         <div className="px-6 py-12 text-center text-sm text-gray-400">
-                          No endpoint available
+                          No change history available
                         </div>
                       )}
                     </div>
@@ -733,25 +770,159 @@ export default function FXEnginePage() {
           )}
 
           {/* ══════════════════ WALLET TABS ══════════════════ */}
-          {(mainTab === 'usd-wallet' || mainTab === 'ngn-wallet' || mainTab === 'yuan-wallet') && (
-            <div className="p-8">
-              <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
-                <p className="text-lg font-semibold text-gray-400">
-                  {mainTab === 'usd-wallet' && 'USD Wallet Management'}
-                  {mainTab === 'ngn-wallet' && 'NGN Wallet Management'}
-                  {mainTab === 'yuan-wallet' && 'Yuan Wallet Management'}
-                </p>
-                <p className="text-sm text-gray-400 mt-2">Endpoint not yet available</p>
+          {(mainTab === 'usd-wallet' || mainTab === 'ngn-wallet' || mainTab === 'yuan-wallet') && (() => {
+            const cur = mainTab === 'usd-wallet' ? 'USD' : mainTab === 'ngn-wallet' ? 'NGN' : 'YAN';
+            const curLabel = mainTab === 'usd-wallet' ? 'USD' : mainTab === 'ngn-wallet' ? 'NGN' : 'Yuan';
+            const curSymbol = cur === 'USD' ? '$' : cur === 'NGN' ? '₦' : '¥';
+            const stats = fxWalletData?.stats;
+            const wallets = fxWalletData?.wallets?.data ?? [];
+            const meta = fxWalletData?.wallets?.meta;
+            const totalPages = meta?.last_page ?? 1;
+            return (
+              <div className="p-8 space-y-6">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900">{curLabel} Wallet Management</h2>
+                  <p className="text-sm text-gray-500 mt-0.5">All {curLabel} wallets on the platform</p>
+                </div>
+
+                {/* Stat cards */}
+                <div className="grid grid-cols-4 gap-4">
+                  {[
+                    { label: 'Total Wallets',   value: loadingFxWallets ? '—' : String(stats?.total_wallets  ?? '—'), color: 'text-gray-900'    },
+                    { label: 'Active Wallets',  value: loadingFxWallets ? '—' : String(stats?.active_wallets ?? '—'), color: 'text-emerald-600' },
+                    { label: 'Locked Wallets',  value: loadingFxWallets ? '—' : String(stats?.locked_wallets ?? '—'), color: 'text-red-500'     },
+                    { label: 'Total Balance',   value: loadingFxWallets ? '—' : stats?.total_balance != null ? `${curSymbol}${Number(stats.total_balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—', color: 'text-blue-600' },
+                  ].map((s) => (
+                    <div key={s.label} className="bg-white rounded-2xl border border-gray-200 p-5">
+                      <p className="text-xs text-gray-500 mb-2">{s.label}</p>
+                      <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Search */}
+                <div className="flex items-center gap-3">
+                  <div className="relative flex-1 max-w-sm">
+                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                    </svg>
+                    <input
+                      type="text"
+                      value={fxWalletSearch}
+                      onChange={(e) => { setFxWalletSearch(e.target.value); setFxWalletPage(1); }}
+                      placeholder="Search by wallet UID, name, email..."
+                      className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                    />
+                  </div>
+                </div>
+
+                {/* Wallets table */}
+                <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <TableHead cols={['User', 'Wallet ID', 'Balance', 'Status', 'Last Activity', 'Action']} />
+                      <tbody className="divide-y divide-gray-50">
+                        {loadingFxWallets
+                          ? [...Array(5)].map((_, i) => (
+                              <tr key={i}>{[...Array(6)].map((_, j) => <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                            ))
+                          : wallets.length === 0
+                            ? <tr><td colSpan={6} className="px-5 py-14 text-center text-sm text-gray-400">No {curLabel} wallets found</td></tr>
+                            : wallets.map((w) => {
+                                const fullName = w.user ? `${w.user.firstName} ${w.user.lastName}`.trim() : '—';
+                                const initials = w.user ? `${w.user.firstName?.[0] ?? ''}${w.user.lastName?.[0] ?? ''}`.toUpperCase() : '?';
+                                const lastAct = w.lastActivityAt ? fmtDate(w.lastActivityAt) : '—';
+                                return (
+                                  <tr key={w.id} className="hover:bg-gray-50/50 transition-colors">
+                                    <td className="px-5 py-4">
+                                      <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-xs font-bold text-emerald-700 flex-shrink-0">{initials}</div>
+                                        <div>
+                                          <p className="text-sm font-semibold text-gray-900">{fullName}</p>
+                                          <p className="text-xs text-gray-400">{w.user?.changpayId ?? w.user?.email ?? '—'}</p>
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td className="px-5 py-4 text-xs text-gray-500 font-mono">{w.id.slice(0, 8).toUpperCase()}</td>
+                                    <td className="px-5 py-4">
+                                      <p className="text-sm font-semibold text-gray-900">{curSymbol}{Number(w.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                                      <p className="text-xs text-gray-400">{curSymbol}{Number(w.availableBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })} avail.</p>
+                                    </td>
+                                    <td className="px-5 py-4">
+                                      <div className="flex flex-col gap-1">
+                                        <ActiveBadge isActive={w.isActive} />
+                                        {w.isLocked && (
+                                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border bg-red-50 text-red-600 border-red-200">Frozen</span>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{lastAct}</td>
+                                    <td className="px-5 py-4">
+                                      <button
+                                        onClick={() => handleToggleFxWallet(w, cur)}
+                                        disabled={togglingWalletId === w.id}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${
+                                          w.isLocked
+                                            ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                            : 'bg-red-50 text-red-600 hover:bg-red-100'
+                                        }`}
+                                      >
+                                        {togglingWalletId === w.id ? '…' : w.isLocked ? 'Unfreeze' : 'Freeze'}
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-gray-500">{meta?.from ?? '—'}–{meta?.to ?? '—'} of {meta?.total ?? '—'}</p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setFxWalletPage((p) => Math.max(1, p - 1))}
+                        disabled={fxWalletPage <= 1 || loadingFxWallets}
+                        className="px-4 py-2 text-sm border border-gray-200 rounded-lg bg-white hover:bg-gray-50 disabled:opacity-40 transition-colors"
+                      >
+                        Prev
+                      </button>
+                      <span className="text-sm text-gray-600 font-medium">{fxWalletPage} / {totalPages}</span>
+                      <button
+                        onClick={() => setFxWalletPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={fxWalletPage >= totalPages || loadingFxWallets}
+                        className="px-4 py-2 text-sm border border-gray-200 rounded-lg bg-white hover:bg-gray-50 disabled:opacity-40 transition-colors"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
 
         </div>
       </div>
 
       {/* Modals */}
-      {systemRateModal   && <SystemRateModal   pair={systemRateModal}   onClose={() => setSystemRateModal(null)} />}
-      {configSpreadModal && <ConfigureSpreadModal pair={configSpreadModal} onClose={() => setConfigSpreadModal(null)} />}
+      {overrideModal && (
+        <OverrideModal
+          rate={overrideModal}
+          onClose={() => setOverrideModal(null)}
+          onSuccess={(rateId) => {
+            setAppliedOverrides((prev) => ({ ...prev, [overrideModal.pair]: rateId }));
+            setOverrides((prev) => ({ ...prev, [overrideModal.pair]: true }));
+          }}
+        />
+      )}
+      {configSpreadModal && (
+        <ConfigureSpreadModal spread={configSpreadModal} onClose={() => setConfigSpreadModal(null)} />
+      )}
     </div>
   );
 }

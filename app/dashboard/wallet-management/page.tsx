@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { walletApi } from '@/lib/api/client';
-import type { WalletStats, WalletRecord, CurrencyWalletData } from '@/lib/api/client';
+import type { WalletStats, WalletRecord, CurrencyWalletData, ReconciliationStatus, TopupTransaction, SwapTransaction, LedgerEntry } from '@/lib/api/client';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
 
@@ -11,30 +11,21 @@ type MainTab      = 'overview' | 'currency-wallets' | 'ledger' | 'reconciliation
 type CwSubTab     = 'wallets' | 'topup' | 'swap';
 type CurrencyType = 'USD' | 'NGN' | 'YAN';
 
-interface TopupRow {
-  id: string; user: string; email: string; walletId: string;
-  amount: string; currency: string; method: string;
-  status: string; ts: string; ref: string; initials: string | null;
-}
-
-interface SwapRow {
-  id: string; user: string; email: string; walletId: string;
-  from: string; to: string; rate: string;
-  status: string; ts: string; ref: string; initials: string | null;
-}
-
-interface LedgerRow {
-  time: string; user: string; userId: string; wallet: string;
-  type: 'credit' | 'debit'; amount: string; ref: string; desc: string;
-}
 
 interface RecentActivityItem {
-  type: 'credit' | 'debit';
-  user: string;
-  wallet_id: string;
-  description: string;
+  action: 'credit' | 'debit';
   amount: string;
-  time: string;
+  currency: string;
+  label: string;
+  walletId: string;
+  user: string;
+  reference: string;
+  createdAt: string;
+}
+
+function fmtDate(s?: string | null) {
+  if (!s) return '—';
+  return new Date(s).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 // ─── Skeleton ──────────────────────────────────────────────────────────────────
@@ -229,56 +220,20 @@ function Pagination({ currentPage, totalPages, onChange, loading, from, to, tota
   );
 }
 
-// ─── Mock data (UI-only — no API endpoint) ────────────────────────────────────
-const MOCK_TOPUP: TopupRow[] = [
-  { id:'TOP001',  user:'James Smith', email:'john.doe@example.com', walletId:'RMB001', amount:'5,000.00',  currency:'USD',  method:'Bank Transfer', status:'Processing', ts:'2026-01-05 10:30am', ref:'TXN20260105001', initials:'UG' },
-  { id:'TOP003',  user:'James Smith', email:'john.doe@example.com', walletId:'RMB067', amount:'1,000.00',  currency:'USD',  method:'Card Payment',  status:'Failed',     ts:'2026-01-05 10:30am', ref:'TXN20260105001', initials:null },
-  { id:'TOP0056', user:'James Smith', email:'john.doe@example.com', walletId:'RMB003', amount:'3,000.00',  currency:'NGN',  method:'Bank Transfer', status:'Processing', ts:'2026-01-05 10:30am', ref:'TXN20260105001', initials:null },
-  { id:'TOP0056', user:'James Smith', email:'john.doe@example.com', walletId:'RMB003', amount:'2,000.00',  currency:'YUAN', method:'Bank Transfer', status:'Failed',     ts:'2026-01-05 10:30am', ref:'TXN20260105001', initials:null },
-  { id:'TOP0056', user:'James Smith', email:'john.doe@example.com', walletId:'RMB003', amount:'78,000.00', currency:'NGN',  method:'Bank Transfer', status:'Processing', ts:'2026-01-05 10:30am', ref:'TXN20260105001', initials:null },
-  { id:'TOP0056', user:'James Smith', email:'john.doe@example.com', walletId:'RMB003', amount:'6,000.00',  currency:'YUAN', method:'Bank Transfer', status:'Completed',  ts:'2026-01-05 10:30am', ref:'TXN20260105001', initials:null },
-];
 
-const MOCK_SWAP: SwapRow[] = [
-  { id:'SWP001', user:'James Smith', email:'john.doe@example.com', walletId:'RMB001', from:'¥5,000.00 CNY',  to:'$687.50 USD',    rate:'7.27', status:'Processing', ts:'2026-01-05 10:30am', ref:'SWP20260105001', initials:'UG' },
-  { id:'SWP001', user:'James Smith', email:'john.doe@example.com', walletId:'RMB067', from:'$1,000.00 USD',  to:'₦1,300,000 NGN', rate:'7.27', status:'Failed',     ts:'2026-01-05 10:30am', ref:'SWP20260105002', initials:null },
-  { id:'SWP001', user:'James Smith', email:'john.doe@example.com', walletId:'RMB067', from:'$1,000.00 USD',  to:'₦1,300,000 USD', rate:'7.27', status:'Failed',     ts:'2026-01-05 10:30am', ref:'SWP20260105002', initials:null },
-  { id:'SWP001', user:'James Smith', email:'john.doe@example.com', walletId:'RMB003', from:'$2,000.00 USD',  to:'¥14,540.00 CYN', rate:'8.24', status:'Completed',  ts:'2026-01-05 10:30am', ref:'SWP20260105002', initials:null },
-  { id:'SWP001', user:'James Smith', email:'john.doe@example.com', walletId:'RMB003', from:'$2,000.00 USD',  to:'¥14,540.00 CYN', rate:'8.24', status:'Completed',  ts:'2026-01-05 10:30am', ref:'SWP20260105002', initials:null },
-  { id:'SWP001', user:'James Smith', email:'john.doe@example.com', walletId:'RMB067', from:'$1,000.00 USD',  to:'₦1,300,000 NGN', rate:'7.27', status:'Failed',     ts:'2026-01-05 10:30am', ref:'SWP20260105002', initials:null },
-];
-
-const MOCK_LEDGER: LedgerRow[] = [
-  { time:'2026-01-05 11:15:22', user:'David Okonkwo',  userId:'CHG-771920', wallet:'NGN003', type:'credit', amount:'+2,000,000', ref:'DEP-78901', desc:'Bank transfer dep...' },
-  { time:'2026-01-05 11:00:45', user:'Robert Johnson', userId:'CHG-771920', wallet:'NGN003', type:'credit', amount:'+5,000',     ref:'DEP-78901', desc:'Wire transfer' },
-  { time:'2026-01-05 10:30:15', user:'John Doe',       userId:'CHG-771920', wallet:'NGN003', type:'credit', amount:'+2,000,000', ref:'DEP-78901', desc:'Bank transfer dep...' },
-  { time:'2026-01-05 11:15:22', user:'Sarah Smith',    userId:'CHG-771920', wallet:'NGN003', type:'debit',  amount:'-2,000',     ref:'DEP-78901', desc:'Withdrawal to bank' },
-  { time:'2026-01-05 11:15:22', user:'Sarah Smith',    userId:'CHG-771920', wallet:'NGN003', type:'credit', amount:'+500,000',   ref:'DEP-78901', desc:'Local transfer' },
-  { time:'2026-01-05 11:15:22', user:'David Okonkwo',  userId:'CHG-771920', wallet:'NGN003', type:'credit', amount:'+2,000,000', ref:'DEP-78901', desc:'Bank transfer dep...' },
-];
-
-interface MockWallet {
-  id: number; uid: string; balance: string; available_balance: string;
-  currency: CurrencyType; is_locked: boolean; is_active: boolean;
-  lastActivity: string; activityRelative: string;
-  user: string; email: string; initials: string | null;
-}
-
-function buildMockWallets(currency: CurrencyType): MockWallet[] {
+function buildMockWallets(currency: CurrencyType): WalletRecord[] {
   const prefix = currency === 'USD' ? 'USD' : currency === 'NGN' ? 'NGN' : 'RMB';
   return Array.from({ length: 6 }, (_, i) => ({
-    id: i + 1,
-    uid: `${prefix}00${i + 1}`,
-    balance: '15,420.50',
-    available_balance: '15,420.50',
+    id: `${prefix}00${i + 1}`,
     currency,
-    is_locked: i === 1 || i === 2,
-    is_active: !(i === 1 || i === 2),
-    lastActivity: '2026-01-05 10:30am',
-    activityRelative: i === 1 ? '3 hours ago' : i === 4 ? '4 days ago' : i === 5 ? '10 months ago' : '2 mins ago',
-    user: 'James Smith',
-    email: 'john.doe@example.com',
-    initials: i % 3 === 0 ? 'UG' : null,
+    balance: '15420.50',
+    availableBalance: '15420.50',
+    isLocked: i === 1 || i === 2,
+    isActive: !(i === 1 || i === 2),
+    isVerified: true,
+    user: { firstName: 'James', lastName: 'Smith', email: 'john.doe@example.com', changpayId: null, avatar: null },
+    lastActivityAt: '2026-01-05T10:30:00+00:00',
+    createdAt: '2026-01-05T10:30:00+00:00',
   }));
 }
 
@@ -299,19 +254,23 @@ export default function WalletManagementPage() {
   const [swapFilter,       setSwapFilter]        = useState('All Status');
   const [currentPage,      setCurrentPage]       = useState(1);
 
-  const [stats,          setStats]          = useState<(WalletStats & {
-    transaction_volume?: string;
-    today_transactions?: number;
-    today_in?: string;
-    today_out?: string;
-  }) | null>(null);
+  const [stats,          setStats]          = useState<WalletStats | null>(null);
   const [currencyData,   setCurrencyData]   = useState<CurrencyWalletData | null>(null);
   const [wallets,        setWallets]        = useState<WalletRecord[]>([]);
   const [recentActivity, setRecentActivity] = useState<RecentActivityItem[]>([]);
-  const [togglingId,     setTogglingId]     = useState<number | null>(null);
-  const [loadingStats,   setLoadingStats]   = useState(true);
-  const [loadingWallets, setLoadingWallets] = useState(false);
-  const [error,          setError]          = useState<string | null>(null);
+  const [togglingId,          setTogglingId]          = useState<string | null>(null);
+  const [reconciliation,      setReconciliation]      = useState<ReconciliationStatus | null>(null);
+  const [loadingStats,        setLoadingStats]        = useState(true);
+  const [loadingWallets,      setLoadingWallets]      = useState(false);
+  const [loadingRecon,        setLoadingRecon]        = useState(false);
+  const [runningRecon,        setRunningRecon]        = useState(false);
+  const [topups,              setTopups]              = useState<TopupTransaction[] | null>(null);
+  const [swaps,               setSwaps]               = useState<SwapTransaction[] | null>(null);
+  const [ledger,              setLedger]              = useState<LedgerEntry[] | null>(null);
+  const [loadingTopups,       setLoadingTopups]       = useState(false);
+  const [loadingSwaps,        setLoadingSwaps]        = useState(false);
+  const [loadingLedger,       setLoadingLedger]       = useState(false);
+  const [error,               setError]               = useState<string | null>(null);
 
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -322,8 +281,8 @@ export default function WalletManagementPage() {
       const res = await walletApi.getStats();
       if (res.status) {
         setStats(res.data);
-        if (Array.isArray((res.data as any)?.recent_activity)) {
-          setRecentActivity((res.data as any).recent_activity as RecentActivityItem[]);
+        if (Array.isArray(res.data?.recent_activity)) {
+          setRecentActivity(res.data.recent_activity);
         }
       }
     } catch (err) {
@@ -349,14 +308,62 @@ export default function WalletManagementPage() {
     }
   }, []);
 
+  const fetchReconciliation = useCallback(async () => {
+    try {
+      setLoadingRecon(true);
+      const res = await walletApi.getReconciliation();
+      if (res.status && res.data) setReconciliation(res.data);
+    } catch { /* silent */ } finally {
+      setLoadingRecon(false);
+    }
+  }, []);
+
+  const handleRunReconciliation = async () => {
+    try {
+      setRunningRecon(true);
+      const res = await walletApi.runReconciliation();
+      if (res.status && res.data) setReconciliation(res.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reconciliation failed');
+    } finally {
+      setRunningRecon(false);
+    }
+  };
+
+  const fetchTopups = useCallback(async (search = '', status = '') => {
+    try {
+      setLoadingTopups(true);
+      const res = await walletApi.getTopups({ search: search || undefined, status: status && status !== 'All Status' ? status.toLowerCase() : undefined, per_page: 15 });
+      setTopups(res.data?.data ?? []);
+    } catch { /* silent */ } finally { setLoadingTopups(false); }
+  }, []);
+
+  const fetchSwaps = useCallback(async (search = '', status = '') => {
+    try {
+      setLoadingSwaps(true);
+      const res = await walletApi.getSwaps({ search: search || undefined, status: status && status !== 'All Status' ? status.toLowerCase() : undefined, per_page: 15 });
+      setSwaps(res.data?.data ?? []);
+    } catch { /* silent */ } finally { setLoadingSwaps(false); }
+  }, []);
+
+  const fetchLedger = useCallback(async (search = '') => {
+    try {
+      setLoadingLedger(true);
+      const res = await walletApi.getLedger({ search: search || undefined, per_page: 15 });
+      setLedger(res.data?.data ?? []);
+    } catch { /* silent */ } finally { setLoadingLedger(false); }
+  }, []);
+
   useEffect(() => { fetchStats(); }, [fetchStats]);
 
   useEffect(() => {
-    if (mainTab === 'currency-wallets' && cwSubTab === 'wallets') {
-      fetchCurrencyWallets(selectedCurrency, currentPage, walletSearch);
-    }
+    if (mainTab === 'currency-wallets' && cwSubTab === 'wallets') fetchCurrencyWallets(selectedCurrency, currentPage, walletSearch);
+    if (mainTab === 'currency-wallets' && cwSubTab === 'topup') fetchTopups(topupSearch, topupFilter);
+    if (mainTab === 'currency-wallets' && cwSubTab === 'swap') fetchSwaps(swapSearch, swapFilter);
+    if (mainTab === 'ledger') fetchLedger(ledgerSearch);
+    if (mainTab === 'reconciliation') fetchReconciliation();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mainTab, cwSubTab, selectedCurrency, currentPage]);
+  }, [mainTab, cwSubTab, selectedCurrency, currentPage, topupSearch, topupFilter, swapSearch, swapFilter, ledgerSearch]);
 
   const handleWalletSearch = (val: string) => {
     setWalletSearch(val);
@@ -389,8 +396,12 @@ export default function WalletManagementPage() {
 
   if (!isAuthenticated) return null;
 
-  const displayWallets: (WalletRecord | MockWallet)[] = wallets.length > 0 ? wallets : buildMockWallets(selectedCurrency);
-  const totalPages = currencyData?.wallets?.last_page ?? 3;
+  const displayWallets: WalletRecord[] = wallets.length > 0
+    ? wallets
+    : currencyData === null
+      ? buildMockWallets(selectedCurrency)
+      : [];
+  const totalPages = currencyData?.wallets?.meta?.last_page ?? 3;
 
   const goToCurrencyWallets = (currency: CurrencyType) => {
     setMainTab('currency-wallets');
@@ -398,15 +409,6 @@ export default function WalletManagementPage() {
     handleCurrencyChange(currency);
   };
 
-  const filteredLedger = MOCK_LEDGER.filter((r) =>
-    !ledgerSearch ||
-    r.user.toLowerCase().includes(ledgerSearch.toLowerCase()) ||
-    r.wallet.toLowerCase().includes(ledgerSearch.toLowerCase()) ||
-    r.ref.toLowerCase().includes(ledgerSearch.toLowerCase())
-  );
-
-  const filteredTopup = MOCK_TOPUP.filter((r) => topupFilter === 'All Status' || r.status === topupFilter);
-  const filteredSwap  = MOCK_SWAP.filter((r)  => swapFilter  === 'All Status' || r.status === swapFilter);
 
   const MAIN_TABS: { id: MainTab; label: string }[] = [
     { id: 'overview',         label: 'Overview' },
@@ -468,16 +470,11 @@ export default function WalletManagementPage() {
                 <div className="bg-[#F8F9FA] rounded-2xl border border-gray-200 p-6">
                   <p className="text-xs text-gray-500 mb-3">Today's Transactions</p>
                   {loadingStats ? <Skeleton className="h-10 w-28" /> : (
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
-                        </svg>
-                        <p className="text-4xl font-bold text-gray-900">{(stats as any)?.today_transactions ?? '—'}</p>
-                      </div>
-                      {(stats as any)?.today_in != null && (
-                        <p className="text-xs text-gray-400 mt-2">{(stats as any).today_in} in / {(stats as any).today_out} out</p>
-                      )}
+                    <div className="flex items-center gap-2">
+                      <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
+                      </svg>
+                      <p className="text-4xl font-bold text-gray-900">{stats?.today?.transactions_count ?? '—'}</p>
                     </div>
                   )}
                 </div>
@@ -485,14 +482,7 @@ export default function WalletManagementPage() {
                 <div className="bg-[#F8F9FA] rounded-2xl border border-gray-200 p-6">
                   <p className="text-xs text-gray-500 mb-3">Transaction Volume</p>
                   {loadingStats ? <Skeleton className="h-10 w-28" /> : (
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
-                        </svg>
-                        <p className="text-4xl font-bold text-gray-900">{stats?.transaction_volume ?? '—'}</p>
-                      </div>
-                    </div>
+                    <p className="text-4xl font-bold text-gray-400">—</p>
                   )}
                 </div>
               </div>
@@ -542,15 +532,17 @@ export default function WalletManagementPage() {
                     {recentActivity.map((item, i) => (
                       <div key={i} className="flex items-center justify-between bg-[#F8F9FA] rounded-xl px-4 py-3.5">
                         <div className="flex items-center gap-3">
-                          {item.type === 'credit' ? <CreditIcon /> : <DebitIcon />}
+                          {item.action === 'credit' ? <CreditIcon /> : <DebitIcon />}
                           <div>
                             <p className="text-sm font-medium text-gray-900">{item.user}</p>
-                            <p className="text-xs text-gray-400">{item.wallet_id} • {item.description}</p>
+                            <p className="text-xs text-gray-400">{item.walletId.slice(0, 8).toUpperCase()} • {item.label}</p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className={`text-sm font-semibold ${item.type === 'credit' ? 'text-emerald-500' : 'text-red-500'}`}>{item.amount}</p>
-                          <p className="text-xs text-gray-400">{item.time}</p>
+                          <p className={`text-sm font-semibold ${item.action === 'credit' ? 'text-emerald-500' : 'text-red-500'}`}>
+                            {item.action === 'debit' ? '-' : '+'}{currencySymbol(item.currency)}{Number(item.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                          <p className="text-xs text-gray-400">{fmtDate(item.createdAt)}</p>
                         </div>
                       </div>
                     ))}
@@ -590,8 +582,8 @@ export default function WalletManagementPage() {
                       <span className="text-base font-semibold text-gray-800">{currencyLabel(selectedCurrency)}</span>
                       <span className="text-base font-semibold text-gray-800">
                         Total Balance:{' '}
-                        {currencyData?.stats?.total_balance
-                          ? `${currencySymbol(selectedCurrency)}${currencyData.stats.total_balance}`
+                        {currencyData?.stats?.total_balance != null
+                          ? `${currencySymbol(selectedCurrency)}${Number(currencyData.stats.total_balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                           : stats?.by_currency?.[selectedCurrency]?.total_balance
                             ? `${currencySymbol(selectedCurrency)}${stats.by_currency[selectedCurrency].total_balance}`
                             : '—'}
@@ -617,43 +609,58 @@ export default function WalletManagementPage() {
                           )) : displayWallets.length === 0 ? (
                             <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-gray-400">No {selectedCurrency} wallets found</td></tr>
                           ) : (
-                            displayWallets.map((wallet, idx) => (
-                              <tr key={(wallet as WalletRecord).id ?? idx} className="hover:bg-gray-50/50 transition-colors">
-                                <td className="px-5 py-4 text-sm font-medium text-gray-900">{(wallet as any).uid}</td>
-                                <td className="px-5 py-4"><UserCell name={(wallet as any).user ?? 'Unknown'} email={(wallet as any).email ?? ''} initials={(wallet as any).initials ?? null} /></td>
-                                <td className="px-5 py-4 text-sm font-semibold text-gray-900">{currencySymbol((wallet as any).currency ?? selectedCurrency)}{(wallet as any).balance}</td>
-                                <td className="px-5 py-4"><StatusBadge isLocked={!!(wallet as any).is_locked} isActive={!!(wallet as any).is_active} /></td>
-                                <td className="px-5 py-4">
-                                  <p className="text-xs text-gray-500 whitespace-nowrap">{(wallet as any).lastActivity ?? '—'}</p>
-                                  <p className="text-xs text-gray-400">{(wallet as any).activityRelative ?? '—'}</p>
-                                </td>
-                                <td className="px-5 py-4">
-                                  <div className="relative group inline-block">
-                                    <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 transition-colors text-gray-500">
-                                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                                        <circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" />
-                                      </svg>
-                                    </button>
-                                    <div className="absolute right-0 top-full mt-1 w-36 bg-white rounded-xl shadow-lg border border-gray-100 py-1 hidden group-hover:block z-10">
-                                      <button className="w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 text-left">View wallet</button>
-                                      <button className="w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 text-left">Credit user</button>
-                                      <button className="w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 text-left">Debit user</button>
-                                      <button
-                                        onClick={() => handleToggleLock(wallet as WalletRecord)}
-                                        disabled={togglingId === (wallet as WalletRecord).id}
-                                        className="w-full px-3 py-2 text-xs text-red-500 hover:bg-red-50 flex items-center gap-2 text-left disabled:opacity-50">
-                                        {togglingId === (wallet as WalletRecord).id ? '...' : (wallet as any).is_locked ? 'Unfreeze' : 'Freeze wallet'}
+                            displayWallets.map((wallet, idx) => {
+                              const userName = wallet.user
+                                ? [wallet.user.firstName, wallet.user.lastName].filter(Boolean).join(' ')
+                                : '—';
+                              const lastActivity = wallet.lastActivityAt
+                                ? new Date(wallet.lastActivityAt).toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '')
+                                : '—';
+                              return (
+                                <tr key={wallet.id ?? idx} className="hover:bg-gray-50/50 transition-colors">
+                                  <td className="px-5 py-4 text-sm font-medium text-gray-900 font-mono">{wallet.id.slice(0, 8).toUpperCase()}</td>
+                                  <td className="px-5 py-4">
+                                    <UserCell
+                                      name={userName}
+                                      email={wallet.user?.changpayId ?? wallet.user?.email ?? ''}
+                                      initials={null}
+                                    />
+                                  </td>
+                                  <td className="px-5 py-4 text-sm font-semibold text-gray-900">
+                                    {currencySymbol(wallet.currency)}{Number(wallet.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </td>
+                                  <td className="px-5 py-4"><StatusBadge isLocked={wallet.isLocked} isActive={wallet.isActive} /></td>
+                                  <td className="px-5 py-4">
+                                    <p className="text-xs text-gray-500 whitespace-nowrap">{lastActivity}</p>
+                                  </td>
+                                  <td className="px-5 py-4">
+                                    <div className="relative group inline-block">
+                                      <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 transition-colors text-gray-500">
+                                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                                          <circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" />
+                                        </svg>
                                       </button>
+                                      <div className="absolute right-0 top-full mt-1 w-36 bg-white rounded-xl shadow-lg border border-gray-100 py-1 hidden group-hover:block z-10">
+                                        <button className="w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 text-left">View wallet</button>
+                                        <button className="w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 text-left">Credit user</button>
+                                        <button className="w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 text-left">Debit user</button>
+                                        <button
+                                          onClick={() => handleToggleLock(wallet)}
+                                          disabled={togglingId === wallet.id}
+                                          className="w-full px-3 py-2 text-xs text-red-500 hover:bg-red-50 flex items-center gap-2 text-left disabled:opacity-50">
+                                          {togglingId === wallet.id ? '...' : wallet.isLocked ? 'Unfreeze' : 'Freeze wallet'}
+                                        </button>
+                                      </div>
                                     </div>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))
+                                  </td>
+                                </tr>
+                              );
+                            })
                           )}
                         </tbody>
                       </table>
                     </div>
-                    <Pagination currentPage={currentPage} totalPages={totalPages} onChange={setCurrentPage} loading={loadingWallets} from={currencyData?.wallets?.from} to={currencyData?.wallets?.to} total={currencyData?.wallets?.total} />
+                    <Pagination currentPage={currentPage} totalPages={totalPages} onChange={setCurrentPage} loading={loadingWallets} from={currencyData?.wallets?.meta?.from ?? undefined} to={currencyData?.wallets?.meta?.to ?? undefined} total={currencyData?.wallets?.meta?.total} />
                   </div>
                 </div>
               )}
@@ -671,18 +678,25 @@ export default function WalletManagementPage() {
                       <table className="w-full">
                         <thead><tr className="border-b border-gray-100">{['Transaction ID','User','Wallet ID','Amount','Method','Status','Timestamp','Reference'].map((h) => <th key={h} className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>)}</tr></thead>
                         <tbody className="divide-y divide-gray-50">
-                          {filteredTopup.map((row, i) => (
-                            <tr key={i} className="hover:bg-gray-50/50 transition-colors">
-                              <td className="px-4 py-4 text-sm font-medium text-gray-900">{row.id}</td>
-                              <td className="px-4 py-4"><UserCell name={row.user} email={row.email} initials={row.initials} /></td>
-                              <td className="px-4 py-4 text-sm text-gray-600">{row.walletId}</td>
-                              <td className="px-4 py-4"><p className="text-sm font-semibold text-gray-900">{row.amount}</p><p className="text-xs text-gray-400">{row.currency}</p></td>
-                              <td className="px-4 py-4 text-sm text-gray-600">{row.method}</td>
-                              <td className="px-4 py-4"><TxBadge status={row.status} /></td>
-                              <td className="px-4 py-4"><p className="text-xs text-gray-500 whitespace-nowrap">{row.ts}</p><p className="text-xs text-gray-400">2 mins ago</p></td>
-                              <td className="px-4 py-4 text-xs text-gray-500">{row.ref}</td>
-                            </tr>
-                          ))}
+                          {loadingTopups
+                            ? [...Array(4)].map((_, i) => (
+                                <tr key={i}>{[...Array(8)].map((_, j) => <td key={j} className="px-4 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                              ))
+                            : !topups || topups.length === 0
+                              ? <tr><td colSpan={8} className="px-4 py-16 text-center text-sm text-gray-400">No topup transactions available</td></tr>
+                              : topups.map((row) => (
+                                  <tr key={String(row.id)} className="hover:bg-gray-50/50 transition-colors">
+                                    <td className="px-4 py-4 text-sm font-medium text-gray-900">{String(row.reference ?? row.id).slice(0, 12)}</td>
+                                    <td className="px-4 py-4"><UserCell name={row.user ? `${row.user.firstName} ${row.user.lastName}`.trim() : '—'} email={row.user?.changpayId ?? row.user?.email ?? ''} initials={null} /></td>
+                                    <td className="px-4 py-4 text-sm text-gray-600">{row.wallet?.id?.slice(0, 8).toUpperCase() ?? '—'}</td>
+                                    <td className="px-4 py-4"><p className="text-sm font-semibold text-gray-900">{currencySymbol(row.currency)}{Number(row.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p><p className="text-xs text-gray-400">{row.currency}</p></td>
+                                    <td className="px-4 py-4 text-sm text-gray-600 capitalize">{row.provider}</td>
+                                    <td className="px-4 py-4"><TxBadge status={row.status} /></td>
+                                    <td className="px-4 py-4 text-xs text-gray-500 whitespace-nowrap">{fmtDate(row.createdAt)}</td>
+                                    <td className="px-4 py-4 text-xs text-gray-500">{row.reference}</td>
+                                  </tr>
+                                ))
+                          }
                         </tbody>
                       </table>
                     </div>
@@ -703,19 +717,26 @@ export default function WalletManagementPage() {
                       <table className="w-full">
                         <thead><tr className="border-b border-gray-100">{['Transaction ID','User','Wallet ID','From','To','Rate','Status','Timestamp','Reference'].map((h) => <th key={h} className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>)}</tr></thead>
                         <tbody className="divide-y divide-gray-50">
-                          {filteredSwap.map((row, i) => (
-                            <tr key={i} className="hover:bg-gray-50/50 transition-colors">
-                              <td className="px-4 py-4 text-sm font-medium text-gray-900">{row.id}</td>
-                              <td className="px-4 py-4"><UserCell name={row.user} email={row.email} initials={row.initials} /></td>
-                              <td className="px-4 py-4 text-sm text-gray-600">{row.walletId}</td>
-                              <td className="px-4 py-4 text-sm font-medium text-gray-900">{row.from}</td>
-                              <td className="px-4 py-4 text-sm font-semibold text-emerald-600">{row.to}</td>
-                              <td className="px-4 py-4 text-sm text-gray-600">{row.rate}</td>
-                              <td className="px-4 py-4"><TxBadge status={row.status} /></td>
-                              <td className="px-4 py-4"><p className="text-xs text-gray-500 whitespace-nowrap">{row.ts}</p><p className="text-xs text-gray-400">2 mins ago</p></td>
-                              <td className="px-4 py-4 text-xs text-gray-500">{row.ref}</td>
-                            </tr>
-                          ))}
+                          {loadingSwaps
+                            ? [...Array(4)].map((_, i) => (
+                                <tr key={i}>{[...Array(9)].map((_, j) => <td key={j} className="px-4 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                              ))
+                            : !swaps || swaps.length === 0
+                              ? <tr><td colSpan={9} className="px-4 py-16 text-center text-sm text-gray-400">No swap transactions available</td></tr>
+                              : swaps.map((row) => (
+                                  <tr key={String(row.id)} className="hover:bg-gray-50/50 transition-colors">
+                                    <td className="px-4 py-4 text-sm font-medium text-gray-900">{String(row.reference ?? row.id).slice(0, 12)}</td>
+                                    <td className="px-4 py-4"><UserCell name={row.user ? `${row.user.firstName} ${row.user.lastName}`.trim() : '—'} email={row.user?.changpayId ?? row.user?.email ?? ''} initials={null} /></td>
+                                    <td className="px-4 py-4 text-sm text-gray-600">—</td>
+                                    <td className="px-4 py-4 text-sm font-medium text-gray-900"><p>{currencySymbol(row.fromCurrency)}{Number(row.fromAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p><p className="text-xs text-gray-400">{row.fromCurrency}</p></td>
+                                    <td className="px-4 py-4 text-sm font-semibold text-emerald-600"><p>{currencySymbol(row.toCurrency)}{Number(row.toAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p><p className="text-xs text-gray-400">{row.toCurrency}</p></td>
+                                    <td className="px-4 py-4 text-sm text-gray-600">{row.rate}</td>
+                                    <td className="px-4 py-4"><TxBadge status={row.status} /></td>
+                                    <td className="px-4 py-4 text-xs text-gray-500 whitespace-nowrap">{fmtDate(row.createdAt)}</td>
+                                    <td className="px-4 py-4 text-xs text-gray-500">{row.reference}</td>
+                                  </tr>
+                                ))
+                          }
                         </tbody>
                       </table>
                     </div>
@@ -728,7 +749,7 @@ export default function WalletManagementPage() {
           {/* ── LEDGER ── */}
           {mainTab === 'ledger' && (
             <div className="p-8 space-y-5">
-              <div><h2 className="text-lg font-bold text-gray-900">System-Wide Transaction Ledger</h2><p className="text-sm text-gray-500 mt-0.5">Immutable record of all transactions</p></div>
+              <div><h2 className="text-lg font-bold text-gray-900">System-Wide Transaction Ledger</h2><p className="text-sm text-gray-500 mt-0.5">Immutable record of all wallet balance changes</p></div>
               <div className="flex items-center gap-3">
                 <SearchBar value={ledgerSearch} onChange={setLedgerSearch} placeholder="Search by wallet, user, reference, or description..." />
                 <ExportBtn />
@@ -738,17 +759,24 @@ export default function WalletManagementPage() {
                   <table className="w-full">
                     <thead><tr className="border-b border-gray-100">{['Time','User','Wallet','Type','Amount','Reference','Description'].map((h) => <th key={h} className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>)}</tr></thead>
                     <tbody className="divide-y divide-gray-50">
-                      {filteredLedger.map((row, i) => (
-                        <tr key={i} className="hover:bg-gray-50/50 transition-colors">
-                          <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{row.time}</td>
-                          <td className="px-5 py-4"><UserCell name={row.user} email={row.userId} /></td>
-                          <td className="px-5 py-4 text-sm text-gray-700">{row.wallet}</td>
-                          <td className="px-5 py-4">{row.type === 'credit' ? <CreditIcon /> : <DebitIcon />}</td>
-                          <td className="px-5 py-4 text-sm font-semibold"><span className={row.type === 'credit' ? 'text-emerald-600' : 'text-red-500'}>{row.amount}</span></td>
-                          <td className="px-5 py-4 text-xs text-gray-500">{row.ref}</td>
-                          <td className="px-5 py-4 text-xs text-gray-500">{row.desc}</td>
-                        </tr>
-                      ))}
+                      {loadingLedger
+                        ? [...Array(5)].map((_, i) => (
+                            <tr key={i}>{[...Array(7)].map((_, j) => <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                          ))
+                        : !ledger || ledger.length === 0
+                          ? <tr><td colSpan={7} className="px-5 py-16 text-center text-sm text-gray-400">No ledger entries available</td></tr>
+                          : ledger.map((row) => (
+                              <tr key={String(row.id)} className="hover:bg-gray-50/50 transition-colors">
+                                <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{fmtDate(row.createdAt)}</td>
+                                <td className="px-5 py-4"><UserCell name={row.user ? `${row.user.firstName} ${row.user.lastName}`.trim() : '—'} email={row.user?.changpayId ?? row.user?.email ?? ''} initials={null} /></td>
+                                <td className="px-5 py-4 text-sm text-gray-600 font-mono text-xs">{row.walletId?.slice(0, 8).toUpperCase() ?? '—'}</td>
+                                <td className="px-5 py-4"><span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold capitalize ${row.action === 'credit' || row.action === 'release' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>{row.action}</span></td>
+                                <td className="px-5 py-4 text-sm font-semibold text-gray-900">{currencySymbol(row.currency)}{Number(row.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                                <td className="px-5 py-4 text-xs text-gray-500 font-mono">{row.reference}</td>
+                                <td className="px-5 py-4 text-sm text-gray-500">{row.description ?? '—'}</td>
+                              </tr>
+                            ))
+                      }
                     </tbody>
                   </table>
                 </div>
@@ -759,40 +787,73 @@ export default function WalletManagementPage() {
           {/* ── RECONCILIATION ── */}
           {mainTab === 'reconciliation' && (
             <div className="p-8 space-y-5">
-              <div><h2 className="text-lg font-bold text-gray-900">System-Wide Reconciliation</h2><p className="text-sm text-gray-500 mt-0.5">Immutable record of all transactions</p></div>
-              <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-5 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-11 h-11 rounded-full bg-white border border-emerald-200 flex items-center justify-center flex-shrink-0">
-                    <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-gray-900">All Wallets Reconciled</p>
-                    <p className="text-xs text-gray-500 mt-0.5">Last reconciliation: {new Date().toLocaleString()}</p>
-                  </div>
-                </div>
-                <button onClick={fetchStats} className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-lg text-sm font-semibold hover:bg-emerald-600 transition-colors">
-                  <svg className={`w-4 h-4 ${loadingStats ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                  </svg>
-                  Manual Reconcile
-                </button>
-              </div>
-              <div className="bg-white rounded-2xl border border-gray-200 p-5">
-                <h3 className="text-sm font-semibold text-gray-900 mb-4">Automated Reconciliation</h3>
-                <div className="flex items-center justify-between bg-[#F8F9FA] rounded-xl px-4 py-4">
-                  <div className="flex items-center gap-3">
-                    <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+              <div><h2 className="text-lg font-bold text-gray-900">System-Wide Reconciliation</h2><p className="text-sm text-gray-500 mt-0.5">Wallet balance audit against ledger entries</p></div>
+
+              {/* Status banner */}
+              {loadingRecon ? (
+                <Skeleton className="h-20 w-full" />
+              ) : (
+                <div className={`${reconciliation?.is_reconciled !== false ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'} border rounded-2xl p-5 flex items-center justify-between`}>
+                  <div className="flex items-center gap-4">
+                    <div className={`w-11 h-11 rounded-full bg-white border flex items-center justify-center flex-shrink-0 ${reconciliation?.is_reconciled !== false ? 'border-emerald-200' : 'border-red-200'}`}>
+                      {reconciliation?.is_reconciled !== false ? (
+                        <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                        </svg>
+                      )}
+                    </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-900">Auto-Reconciliation Job</p>
-                      <p className="text-xs text-gray-400 mt-0.5">Runs every 10 minutes</p>
+                      <p className="text-sm font-bold text-gray-900">
+                        {reconciliation
+                          ? reconciliation.is_reconciled ? 'All Wallets Reconciled' : `${reconciliation.discrepancies_count} Discrepanc${reconciliation.discrepancies_count === 1 ? 'y' : 'ies'} Found`
+                          : 'Reconciliation status unavailable'}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {reconciliation?.total_wallets_checked != null ? `${reconciliation.total_wallets_checked} wallets checked` : '—'}
+                        {reconciliation?.auto_job?.last_run_at ? ` · Last run: ${fmtDate(reconciliation.auto_job.last_run_at)}` : ''}
+                      </p>
                     </div>
                   </div>
-                  <span className="text-xs font-semibold text-emerald-500">Active</span>
+                  <button
+                    onClick={handleRunReconciliation}
+                    disabled={runningRecon}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-lg text-sm font-semibold hover:bg-emerald-600 transition-colors disabled:opacity-60">
+                    <svg className={`w-4 h-4 ${runningRecon ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                    </svg>
+                    {runningRecon ? 'Running…' : 'Manual Reconcile'}
+                  </button>
                 </div>
+              )}
+
+              {/* Auto-job info */}
+              <div className="bg-white rounded-2xl border border-gray-200 p-5">
+                <h3 className="text-sm font-semibold text-gray-900 mb-4">Automated Reconciliation</h3>
+                {loadingRecon ? <Skeleton className="h-14 w-full" /> : (
+                  <div className="flex items-center justify-between bg-[#F8F9FA] rounded-xl px-4 py-4">
+                    <div className="flex items-center gap-3">
+                      <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">Auto-Reconciliation Job</p>
+                        <p className="text-xs text-gray-400 mt-0.5">{reconciliation?.auto_job?.schedule ?? '—'}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className={`text-xs font-semibold ${reconciliation?.auto_job?.last_status === 'reconciled' ? 'text-emerald-500' : 'text-gray-400'}`}>
+                        {reconciliation?.auto_job?.last_status ? reconciliation.auto_job.last_status.charAt(0).toUpperCase() + reconciliation.auto_job.last_status.slice(1) : 'Active'}
+                      </span>
+                      {reconciliation?.auto_job?.next_run_at && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">Next: {fmtDate(reconciliation.auto_job.next_run_at)}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

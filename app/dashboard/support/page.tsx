@@ -667,7 +667,7 @@ export default function SupportDisputesPage() {
                         tickets.map((t) => (
                           <tr key={t.id} className="hover:bg-gray-50/50 transition-colors">
                             <td className="px-5 py-4 text-xs font-mono text-gray-600">{(t as any).reference ?? `TX-${t.id}`}</td>
-                            <td className="px-5 py-4"><ClientCell name={(t as any).user_name ?? (t as any).user} userId={(t as any).user_id ?? (t as any).changpay_id} /></td>
+                            <td className="px-5 py-4"><ClientCell name={t.user ? `${t.user.firstName ?? ''} ${t.user.lastName ?? ''}`.trim() || t.user.email : '—'} userId={t.user?.changpayId ?? t.user?.email ?? undefined} /></td>
                             <td className="px-5 py-4 text-sm text-gray-700 max-w-[180px] truncate">{t.subject}</td>
                             <td className="px-5 py-4 text-sm text-gray-600 capitalize">{t.category ?? '—'}</td>
                             <td className="px-5 py-4"><PriorityBadge priority={t.priority} /></td>
@@ -744,7 +744,7 @@ export default function SupportDisputesPage() {
                         disputes.map((d) => (
                           <tr key={d.id} className="hover:bg-gray-50/50 transition-colors">
                             <td className="px-5 py-4 text-xs font-mono text-gray-600">{(d as any).reference ?? `TX-${d.id}`}</td>
-                            <td className="px-5 py-4"><ClientCell name={(d as any).user_name ?? (d as any).user} userId={(d as any).user_id ?? (d as any).changpay_id} /></td>
+                            <td className="px-5 py-4"><ClientCell name={d.user ? `${d.user.firstName ?? ''} ${d.user.lastName ?? ''}`.trim() || d.user.email : '—'} userId={d.user?.changpayId ?? d.user?.email ?? undefined} /></td>
                             <td className="px-5 py-4 text-sm text-gray-700 max-w-[180px] truncate">{d.subject}</td>
                             <td className="px-5 py-4 text-sm text-gray-600 capitalize">{d.type ?? 'Dispute'}</td>
                             <td className="px-5 py-4"><PriorityBadge priority={(d as any).priority ?? 'medium'} /></td>

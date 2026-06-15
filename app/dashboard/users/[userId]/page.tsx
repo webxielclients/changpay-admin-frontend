@@ -3,7 +3,7 @@
 import { use, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
-import { usersApi } from '@/lib/api/client';
+import { usersApi, UserTransactionItem } from '@/lib/api/client';
 import Sidebar from '@/components/Sidebar';
 
 /* ─────────────────────────────────────────
@@ -67,18 +67,6 @@ interface ApiNote {
   created_at: string;
 }
 
-interface TxItem {
-  id: number;
-  type: string;
-  category?: string;
-  amount: string;
-  currency: string;
-  status: string;
-  reference: string;
-  fee?: string;
-  created_at?: string;
-  createdAt?: string;
-}
 
 /* ─────────────────────────────────────────
    FIELD ACCESSORS — camelCase ?? snake_case
@@ -298,7 +286,7 @@ export default function UserDetailPage({ params }: { params: Promise<{ userId: s
 
   const [user, setUser]   = useState<RawUser | null>(null);
   const [notes, setNotes] = useState<ApiNote[]>([]);
-  const [txs, setTxs]     = useState<TxItem[]>([]);
+  const [txs, setTxs]     = useState<UserTransactionItem[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [noteInput, setNoteInput]     = useState('');
   const [isLoading, setIsLoading]     = useState(true);
@@ -327,7 +315,7 @@ export default function UserDetailPage({ params }: { params: Promise<{ userId: s
         setNotes((notesRes.value.data as any)?.data ?? []);
       }
       if (txRes.status === 'fulfilled' && txRes.value.status) {
-        setTxs((txRes.value.data as any)?.data ?? []);
+        setTxs(txRes.value.data.data ?? []);
       }
 
       // Devices — try fetching, silent fail if endpoint doesn't exist yet
@@ -498,14 +486,15 @@ export default function UserDetailPage({ params }: { params: Promise<{ userId: s
                 <div className="px-6 py-8 text-sm text-gray-400 text-center">No recent transactions</div>
               ) : (
                 <div className="divide-y divide-gray-100">
-                  {txs.map(tx => {
-                    const isIncome = (tx.category ?? '').toLowerCase() === 'income' || tx.type === 'deposit';
-                    const date = tx.created_at ?? tx.createdAt ?? null;
+                  {txs.map((tx, i) => {
+                    const isIncome = (tx.category ?? '').toLowerCase() === 'income' || tx.type?.toLowerCase() === 'deposit';
+                    const date = tx.dateTime ?? tx.created_at ?? tx.createdAt ?? null;
+                    const ref = tx.reference ?? String(tx.id);
                     return (
-                      <div key={tx.id} className="px-6 py-4 flex items-center justify-between">
+                      <div key={`${tx.id}-${i}`} className="px-6 py-4 flex items-center justify-between">
                         <div>
                           <p className="text-sm font-semibold text-gray-900 capitalize">{tx.type}</p>
-                          <p className="text-[11px] text-gray-400 mt-0.5">{fmtDate(date)} • {tx.reference}</p>
+                          <p className="text-[11px] text-gray-400 mt-0.5">{fmtDate(date)} • {ref}</p>
                         </div>
                         <div className="text-right">
                           <p className="text-sm font-bold" style={{ color: isIncome ? '#339D88' : '#FF756B' }}>

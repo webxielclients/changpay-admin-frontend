@@ -53,9 +53,9 @@ function fmtDateTime(d: string | null | undefined) {
   }).replace(',', '');
 }
 
-function fmtAmount(v: string | number | undefined | null) {
+function fmtAmount(v: string | number | undefined | null, symbol = '') {
   if (v == null || v === '') return '—';
-  return `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${symbol}${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /* ── Wallet meta ── */
@@ -163,14 +163,23 @@ export default function WalletTransactionsPage({
         currency: meta.currency,
         page: pg,
         per_page: 15,
+        ...(q      ? { search: q }           : {}),
         ...(type   ? { type: type as any }   : {}),
         ...(status ? { status }              : {}),
       });
       if (res.status && res.data) {
         const d = res.data as any;
-        setTxs(d?.data ?? []);
-        if (d?.total != null) {
-          setPagination({ total: d.total, last_page: d.last_page, from: d.from ?? 1, to: d.to ?? (d.data?.length ?? 0) });
+        const items: TxItem[] = d?.data ?? [];
+        setTxs(items);
+        // handle new { data, links, meta } format and old flat { current_page, data, total } format
+        const pg = d?.meta ?? d;
+        if (pg?.total != null) {
+          setPagination({
+            total: pg.total,
+            last_page: pg.last_page ?? 1,
+            from: pg.from ?? 1,
+            to: pg.to ?? items.length,
+          });
         }
       }
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed to load transactions'); }
@@ -324,7 +333,7 @@ export default function WalletTransactionsPage({
                       const isIncome = (tx.category ?? '').toLowerCase() === 'income' || (tx.type ?? '').toLowerCase() === 'deposit';
                       const destName = tx.destination_name ?? tx.destinationName ?? '—';
                       const destRef  = tx.destination_ref  ?? tx.destinationRef  ?? '';
-                      const date     = tx.created_at ?? tx.createdAt ?? null;
+                      const date     = (tx as any).dateTime ?? tx.created_at ?? tx.createdAt ?? null;
                       const ref      = tx.reference ?? String(tx.id);
                       return (
                         <tr key={tx.id ?? i} className="hover:bg-gray-50/60 transition-colors">
@@ -348,7 +357,7 @@ export default function WalletTransactionsPage({
                           {/* Amount */}
                           <td className="px-4 py-4 whitespace-nowrap">
                             <span className="text-sm font-bold" style={{ color: isIncome ? '#339D88' : '#FF756B' }}>
-                              {isIncome ? '+' : ''}{fmtAmount(tx.amount)}
+                              {isIncome ? '+' : ''}{fmtAmount(tx.amount, meta.symbol)}
                             </span>
                           </td>
                           {/* Status */}
@@ -357,7 +366,7 @@ export default function WalletTransactionsPage({
                           </td>
                           {/* Fee */}
                           <td className="px-4 py-4 text-sm text-gray-600 whitespace-nowrap">
-                            {tx.fee != null ? fmtAmount(tx.fee) : '—'}
+                            {tx.fee != null ? fmtAmount(tx.fee, meta.symbol) : '—'}
                           </td>
                           {/* Date */}
                           <td className="px-4 py-4 text-xs text-gray-500 whitespace-nowrap">

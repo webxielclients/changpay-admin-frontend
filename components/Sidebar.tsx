@@ -74,26 +74,16 @@ const navItems: NavItem[] = [
     ),
   },
   // {
-  //   id: 'compliance',
-  //   label: 'Compliance &Risk',
-  //   path: '/dashboard/compliance',
+  //   id: 'gift-cards',
+  //   label: 'Gift Card Engine',
+  //   path: '/dashboard/gift-cards',
   //   icon: (isActive) => (
   //     <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-  //       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+  //       <path strokeLinecap="round" strokeLinejoin="round" d="M21 11.25v8.25a1.5 1.5 0 01-1.5 1.5H5.25a1.5 1.5 0 01-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 109.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1114.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
   //     </svg>
   //   ),
   // },
   {
-    id: 'gift-cards',
-    label: 'Gift Card Engine',
-    path: '/dashboard/gift-cards',
-    icon: (isActive) => (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M21 11.25v8.25a1.5 1.5 0 01-1.5 1.5H5.25a1.5 1.5 0 01-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 109.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1114.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
-      </svg>
-    ),
-  },
-    {
     id: 'KYC/KYB Verification',
     label: 'KYC/KYB Verification',
     path: '/dashboard/kyc-verification',
@@ -147,24 +137,18 @@ export default function Sidebar() {
 
   return (
     <aside className="w-64 bg-[#012D32] text-white flex flex-col">
-      {/* Logo */}
       <div className="p-6">
         <Image src="/Group.svg" alt="Changpay Logo" width={150} height={40} className="object-contain" />
       </div>
-
-      {/* Navigation */}
       <nav className="flex-1 py-2 px-3 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
           const isActive = pathname === item.path || pathname?.startsWith(item.path + '/');
-          
           return (
             <button
               key={item.id}
               onClick={() => handleNavigation(item.path)}
               className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl transition-all text-left ${
-                isActive
-                  ? 'bg-[#009F51] text-white'
-                  : 'text-white/80 hover:bg-white/10 hover:text-white'
+                isActive ? 'bg-[#009F51] text-white' : 'text-white/80 hover:bg-white/10 hover:text-white'
               }`}
             >
               {item.icon(isActive)}

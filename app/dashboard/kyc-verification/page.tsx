@@ -107,13 +107,15 @@ interface ReviewModalProps {
   onClose: () => void;
   onApprove: () => void;
   onReject: (reason: string) => void;
-  onResubmit: () => void;
+  onResubmit: (reason: string) => void;
   isActing: boolean;
 }
 
 function ReviewModal({ verification, onClose, onApprove, onReject, onResubmit, isActing }: ReviewModalProps) {
-  const [rejectReason,    setRejectReason]    = useState('');
-  const [showRejectInput, setShowRejectInput] = useState(false);
+  const [rejectReason,      setRejectReason]      = useState('');
+  const [resubmitReason,    setResubmitReason]    = useState('');
+  const [showRejectInput,   setShowRejectInput]   = useState(false);
+  const [showResubmitInput, setShowResubmitInput] = useState(false);
   const isKYB = verification.type === 'kyb';
   const kyb   = isKYB ? (verification as KYBVerification) : null;
 
@@ -255,45 +257,57 @@ function ReviewModal({ verification, onClose, onApprove, onReject, onResubmit, i
 
         {/* Action buttons */}
         {!isApproved && (
-          <div className="p-5 border-t border-gray-100">
-            {!showRejectInput ? (
+          <div className="p-5 border-t border-gray-100 space-y-3">
+            {/* Reject reason input */}
+            {showRejectInput && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Reason for Rejection *</label>
+                <textarea
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="Provide a clear reason..."
+                  rows={3}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-400"
+                />
+              </div>
+            )}
+            {/* Resubmit reason input */}
+            {showResubmitInput && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Reason for Resubmission *</label>
+                <textarea
+                  value={resubmitReason}
+                  onChange={(e) => setResubmitReason(e.target.value)}
+                  placeholder="Explain what needs to be corrected..."
+                  rows={3}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+            )}
+            {!showRejectInput && !showResubmitInput ? (
               <div className="flex gap-3">
-                <button
-                  onClick={onApprove}
-                  disabled={isActing}
-                  className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
-                >
+                <button onClick={onApprove} disabled={isActing} className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
                   {isActing ? 'Processing...' : 'Approve'}
                 </button>
-                <button
-                  onClick={() => setShowRejectInput(true)}
-                  disabled={isActing}
-                  className="flex-1 py-3 bg-red-400 hover:bg-red-500 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
-                >
+                <button onClick={() => setShowRejectInput(true)} disabled={isActing} className="flex-1 py-3 bg-red-400 hover:bg-red-500 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
                   Reject
                 </button>
-                <button
-                  onClick={onResubmit}
-                  disabled={isActing}
-                  className="flex-1 py-3 bg-red-50 hover:bg-red-100 text-red-400 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 whitespace-nowrap"
-                >
+                <button onClick={() => setShowResubmitInput(true)} disabled={isActing} className="flex-1 py-3 bg-amber-50 hover:bg-amber-100 text-amber-600 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 whitespace-nowrap">
                   Request Resubmit
+                </button>
+              </div>
+            ) : showRejectInput ? (
+              <div className="flex gap-3">
+                <button onClick={() => setShowRejectInput(false)} className="flex-1 py-3 border border-gray-200 text-gray-700 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors">Cancel</button>
+                <button onClick={() => onReject(rejectReason)} disabled={isActing || !rejectReason.trim()} className="flex-1 py-3 bg-red-400 hover:bg-red-500 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
+                  {isActing ? 'Rejecting...' : 'Confirm Reject'}
                 </button>
               </div>
             ) : (
               <div className="flex gap-3">
-                <button
-                  onClick={() => setShowRejectInput(false)}
-                  className="flex-1 py-3 border border-gray-200 text-gray-700 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => onReject(rejectReason)}
-                  disabled={isActing || !rejectReason.trim()}
-                  className="flex-1 py-3 bg-red-400 hover:bg-red-500 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
-                >
-                  {isActing ? 'Rejecting...' : 'Confirm Reject'}
+                <button onClick={() => setShowResubmitInput(false)} className="flex-1 py-3 border border-gray-200 text-gray-700 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors">Cancel</button>
+                <button onClick={() => onResubmit(resubmitReason)} disabled={isActing || !resubmitReason.trim()} className="flex-1 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
+                  {isActing ? 'Sending...' : 'Send Request'}
                 </button>
               </div>
             )}
@@ -401,9 +415,20 @@ export default function KYCVerificationPage() {
     }
   };
 
-  const handleResubmit = async () => {
-    // Request resubmit — no endpoint yet
-    setSelectedVerification(null);
+  const handleResubmit = async (reason: string) => {
+    if (!selectedVerification || !reason.trim()) return;
+    try {
+      setIsActing(true);
+      setActionError(null);
+      await kycApi.requestResubmit(selectedVerification.id, reason);
+      setVerifications((prev) => prev.map((v) => v.id === selectedVerification.id ? { ...v, status: 'not_started' as const } : v));
+      setSelectedVerification(null);
+      fetchStats();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Resubmit request failed');
+    } finally {
+      setIsActing(false);
+    }
   };
 
   const totalPages  = pagination?.last_page ?? 1;

@@ -17,12 +17,13 @@ function Skeleton({ w = 'w-full', h = 'h-4' }: { w?: string; h?: string }) {
 
 /* ── Stat Card ── */
 function StatCard({
-  label, value, subLabel, subTrend, icon, loading,
+  label, value, subLabel, subTrend, subTrendValue, icon, loading,
 }: {
   label: string;
   value: string;
   subLabel: string;
   subTrend?: 'up' | 'down';
+  subTrendValue?: string;
   icon: React.ReactNode;
   loading: boolean;
 }) {
@@ -40,14 +41,14 @@ function StatCard({
       {!loading && (
         <div className="flex items-center gap-1.5 mt-0.5">
           <span className="text-[11px] text-gray-500">{subLabel}</span>
-          {subTrend && (
+          {subTrend && subTrendValue && (
             <span className={`flex items-center gap-0.5 text-[11px] font-semibold ${subTrend === 'up' ? 'text-emerald-500' : 'text-red-400'}`}>
               {subTrend === 'up' ? (
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1.5 L8.5 7H1.5Z" fill="currentColor"/></svg>
               ) : (
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 8.5 L1.5 3H8.5Z" fill="currentColor"/></svg>
               )}
-              +20%
+              {subTrendValue}
             </span>
           )}
         </div>
@@ -155,6 +156,29 @@ function RiskBadge({ risk }: { risk?: string }) {
   return <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-[11px] font-bold uppercase border ${cfg}`}>{risk}</span>;
 }
 
+function fmtBalance(amount: number | undefined, symbol: string): string {
+  if (amount == null) return '—';
+  const abs = Math.abs(amount);
+  const sign = amount < 0 ? '-' : '';
+  if (abs >= 1_000_000_000) return `${sign}${symbol}${(abs / 1_000_000_000).toFixed(2)}B`;
+  if (abs >= 1_000_000) return `${sign}${symbol}${(abs / 1_000_000).toFixed(2)}M`;
+  return `${sign}${symbol}${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(abs)}`;
+}
+
+function fmtPct(pct: number | undefined): string {
+  if (pct == null) return '';
+  const abs = Math.abs(pct);
+  const sign = pct >= 0 ? '+' : '-';
+  if (abs >= 10_000) return `${sign}${(abs / 1000).toFixed(0)}K%`;
+  return `${sign}${abs.toFixed(1)}%`;
+}
+
+function fmtTxAmount(amount: number, currency: string): string {
+  const symbol = currency === 'USD' ? '$' : currency === 'NGN' ? '₦' : currency === 'YAN' ? '¥' : '';
+  const n = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(amount);
+  return symbol ? `${symbol}${n}` : `${n} ${currency}`;
+}
+
 const PENDING_ACTIONS = [
   { label: 'KYC/KYB approvals',     key: 'kyc_approvals',       icon: '/kyc.svg' },
   { label: 'Failed payouts',         key: 'failed_payouts',      icon: '/failed.svg' },
@@ -200,7 +224,6 @@ export default function DashboardHome() {
   if (!isAuthenticated) return null;
 
   const greeting = `Welcome Back, ${user?.first_name ?? user?.email?.split('@')[0] ?? 'Admin'} 👋`;
-  const verifiedLabel = 'Verified Users';
   const totalVolume = chartData?.total_volume != null
     ? new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(chartData.total_volume)
     : '—';
@@ -267,35 +290,37 @@ export default function DashboardHome() {
           <div className="grid grid-cols-4 gap-4">
             <StatCard
               label="Total users"
-              value={loadingOverview ? '—' : (overview?.users?.total ?? '—')}
-              subLabel={verifiedLabel}
-              subTrend="up"
+              value={String(overview?.users?.total ?? '—')}
+              subLabel={`${overview?.users?.verified ?? 0} verified`}
+              subTrend={overview?.users?.change_direction}
+              subTrendValue={fmtPct(overview?.users?.change_percent) || undefined}
               loading={loadingOverview}
-              icon={
-              <Image src="/icon(2).svg" alt="Users" width={34} height={34} />
-              }
+              icon={<Image src="/icon(2).svg" alt="Users" width={34} height={34} />}
             />
             <StatCard
               label="YUAN Wallet Balance"
-              value="¥7,865"
-              subLabel="Last month: ¥38,118"
-              subTrend="down"
+              value={fmtBalance(overview?.by_currency?.YAN?.total_balance, '¥')}
+              subLabel={`Last period: ${fmtBalance(overview?.by_currency?.YAN?.last_period_balance, '¥')}`}
+              subTrend={overview?.by_currency?.YAN?.change_direction}
+              subTrendValue={fmtPct(overview?.by_currency?.YAN?.change_percent) || undefined}
               loading={loadingOverview}
               icon={<Image src="/china.svg" alt="YUAN" width={24} height={24} />}
             />
             <StatCard
               label="USD Wallet Balance"
-              value="$7,865"
-              subLabel="Last month: $38,118"
-              subTrend="down"
+              value={fmtBalance(overview?.by_currency?.USD?.total_balance, '$')}
+              subLabel={`Last period: ${fmtBalance(overview?.by_currency?.USD?.last_period_balance, '$')}`}
+              subTrend={overview?.by_currency?.USD?.change_direction}
+              subTrendValue={fmtPct(overview?.by_currency?.USD?.change_percent) || undefined}
               loading={loadingOverview}
               icon={<Image src="/unitedstates.svg" alt="USD" width={24} height={24} />}
             />
             <StatCard
               label="NGN Wallet Balance"
-              value="₦1.24B"
-              subLabel="Last month: ₦38,118"
-              subTrend="down"
+              value={fmtBalance(overview?.by_currency?.NGN?.total_balance, '₦')}
+              subLabel={`Last period: ${fmtBalance(overview?.by_currency?.NGN?.last_period_balance, '₦')}`}
+              subTrend={overview?.by_currency?.NGN?.change_direction}
+              subTrendValue={fmtPct(overview?.by_currency?.NGN?.change_percent) || undefined}
               loading={loadingOverview}
               icon={<Image src="/ngn.svg" alt="NGN" width={24} height={24} />}
             />
@@ -320,7 +345,9 @@ export default function DashboardHome() {
                 <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
               </svg>
               <span className="text-sm font-medium text-gray-800 flex-1">Fraud Alerts</span>
-              <span className="w-5 h-5 rounded-full bg-amber-400 text-white text-[11px] font-bold flex items-center justify-center shrink-0">4</span>
+              <span className="w-5 h-5 rounded-full bg-amber-400 text-white text-[11px] font-bold flex items-center justify-center shrink-0">
+                {overview?.alerts?.fraud_alerts ?? 0}
+              </span>
               <button className="px-3 py-1 text-xs font-semibold text-white rounded-xl shrink-0" style={{ backgroundColor: '#012D32' }}>View</button>
             </div>
  
@@ -329,14 +356,14 @@ export default function DashboardHome() {
               <p className="text-sm font-semibold text-gray-800 mb-2">FX exposure summary</p>
               <div className="flex items-center gap-4">
                 {([
-                  { label: 'NGN', value: (overview as any)?.fx_exposure?.ngn ?? 'Short' },
-                  { label: 'USD', value: (overview as any)?.fx_exposure?.usd ?? 'Long' },
-                  { label: 'YUAN', value: (overview as any)?.fx_exposure?.yuan ?? 'Long' },
-                ] as { label: string; value: string }[]).map(({ label, value }) => (
+                  { label: 'NGN', value: overview?.fx_exposure_summary?.NGN },
+                  { label: 'USD', value: overview?.fx_exposure_summary?.USD },
+                  { label: 'YAN', value: overview?.fx_exposure_summary?.YAN },
+                ] as { label: string; value: string | undefined }[]).map(({ label, value }) => (
                   <span key={label} className="text-xs text-gray-500">
                     <span className="font-semibold text-gray-600">{label}:</span>{' '}
-                    <span className={`font-semibold ${value === 'Long' ? 'text-emerald-600' : value === 'Short' ? 'text-red-500' : 'text-gray-600'}`}>
-                      {value}
+                    <span className={`font-semibold ${value?.toLowerCase() === 'long' ? 'text-emerald-600' : value?.toLowerCase() === 'short' ? 'text-red-500' : 'text-gray-400'}`}>
+                      {value ? value.charAt(0).toUpperCase() + value.slice(1) : '—'}
                     </span>
                   </span>
                 ))}
@@ -429,32 +456,30 @@ export default function DashboardHome() {
                   </thead>
                   <tbody className="bg-white">
                     {transactions.map((tx) => (
-                      <tr key={tx.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                      <tr key={`${tx.id}-${tx.sourceType}-${tx.sourceId}`} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                         <td className="px-4 py-4 pl-6 text-sm font-medium text-gray-800 whitespace-nowrap">
-                          {tx.reference?.slice(0, 8) ?? `TX-${tx.id}`}
+                          {tx.id}
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap">
                           <div className="flex items-center gap-2.5">
                             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-teal-400 to-emerald-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                              {((tx as any).client_name?.[0] ?? (tx as any).user?.first_name?.[0] ?? 'U').toUpperCase()}
+                              {(tx.client.name?.[0] ?? 'U').toUpperCase()}
                             </div>
                             <div>
-                              <p className="text-sm font-medium text-gray-900 leading-tight">
-                                {(tx as any).client_name ?? ((tx as any).user ? `${(tx as any).user.first_name ?? ''} ${(tx as any).user.last_name ?? ''}`.trim() : '—')}
-                              </p>
-                              <p className="text-[11px] text-gray-400">{(tx as any).changpay_id ?? (tx as any).user?.changpay_id ?? ''}</p>
+                              <p className="text-sm font-medium text-gray-900 leading-tight">{tx.client.name || '—'}</p>
+                              <p className="text-[11px] text-gray-400">{tx.client.changpayId ?? ''}</p>
                             </div>
                           </div>
                         </td>
                         <td className="px-4 py-4 text-sm text-gray-600 whitespace-nowrap capitalize">{tx.type}</td>
-                        <td className="px-4 py-4 text-sm text-gray-600 whitespace-nowrap">{(tx as any).channel ?? tx.currency ?? '—'}</td>
-                        <td className="px-4 py-4 text-sm font-semibold text-gray-900 whitespace-nowrap">{tx.amount}</td>
+                        <td className="px-4 py-4 text-sm text-gray-600 whitespace-nowrap">{tx.channel || '—'}</td>
+                        <td className="px-4 py-4 text-sm font-semibold text-gray-900 whitespace-nowrap">{fmtTxAmount(tx.amount, tx.currency)}</td>
                         <td className="px-4 py-4 whitespace-nowrap"><StatusBadge status={tx.status} /></td>
                         <td className="px-4 py-4 text-xs text-gray-500 whitespace-nowrap">
-                          {new Date(tx.created_at).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' })},&nbsp;
-                          {new Date(tx.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase()}
+                          {new Date(tx.dateTime).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' })},&nbsp;
+                          {new Date(tx.dateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase()}
                         </td>
-                        <td className="px-4 py-4 whitespace-nowrap"><RiskBadge risk={(tx as any).risk} /></td>
+                        <td className="px-4 py-4 whitespace-nowrap"><RiskBadge risk={tx.risk} /></td>
                         <td className="px-4 py-4 pr-6 whitespace-nowrap">
                           <button className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 hover:underline">View</button>
                         </td>
