@@ -606,6 +606,10 @@ export interface WalletStats {
     topups_total: Record<string, number>;
     conversions_total: Record<string, number>;
   };
+  transaction_volume: {
+    total: string;
+    by_currency: Record<string, number>;
+  };
   recent_activity: {
     action: 'credit' | 'debit';
     amount: string;

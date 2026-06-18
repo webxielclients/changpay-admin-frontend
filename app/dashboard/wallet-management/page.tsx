@@ -484,27 +484,27 @@ export default function WalletManagementPage() {
 
                 <div className="bg-[#F8F9FA] rounded-2xl border border-gray-200 p-6">
                   <p className="text-xs text-gray-500 mb-3">Transaction Volume</p>
-                  {loadingStats ? <Skeleton className="h-10 w-28" /> : (() => {
-                    const topups = stats?.today?.topups_total ?? {};
-                    const convs  = stats?.today?.conversions_total ?? {};
-                    const currencies = Array.from(new Set([...Object.keys(topups), ...Object.keys(convs)]));
-                    if (currencies.length === 0) return <p className="text-4xl font-bold text-gray-400">—</p>;
-                    return (
-                      <div className="space-y-1.5 mt-1">
-                        {currencies.map((cur) => {
-                          const total = (Number(topups[cur] ?? 0) + Number(convs[cur] ?? 0));
-                          return (
-                            <div key={cur} className="flex items-center justify-between">
-                              <span className="text-xs text-gray-500">{cur}</span>
-                              <span className="text-sm font-bold text-gray-900">
-                                {currencySymbol(cur)}{total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
+                  {loadingStats ? <Skeleton className="h-10 w-28" /> : (
+                    stats?.transaction_volume?.total != null ? (
+                      <>
+                        <p className="text-4xl font-bold text-gray-900">
+                          ${Number(stats.transaction_volume.total).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                        {stats.transaction_volume.by_currency && (
+                          <div className="mt-3 space-y-1.5">
+                            {Object.entries(stats.transaction_volume.by_currency).map(([cur, amt]) => (
+                              <div key={cur} className="flex items-center justify-between">
+                                <span className="text-xs text-gray-400">{cur}</span>
+                                <span className="text-xs font-semibold text-gray-700">
+                                  {currencySymbol(cur)}{Number(amt).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    ) : <p className="text-4xl font-bold text-gray-400">—</p>
+                  )}
                 </div>
               </div>
 
