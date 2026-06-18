@@ -279,7 +279,7 @@ export const usersApi = {
       .filter(([, v]) => v != null)
       .map(([k, v]) => [k, String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
-    return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<AdminUserRecord> }>(
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<AdminUserRecord> }>(
       `/users${query}`
     );
   },

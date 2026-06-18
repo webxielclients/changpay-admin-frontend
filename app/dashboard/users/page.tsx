@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 import { usersApi } from '@/lib/api/client';
-import type { AdminUserRecord, PaginatedResponse } from '@/lib/api/client';
+import type { AdminUserRecord, MetaPaginatedResponse } from '@/lib/api/client';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
 
@@ -66,13 +66,14 @@ function StatusBadge({ isActive }: { isActive: boolean }) {
   );
 }
 
-/* ── KYC Badge — Verified=#339D88, Pending=#9E4300, Rejected=#FF756B ── */
-function KYCBadge({ status }: { status: string | null }) {
-  const s = (status ?? 'pending').toLowerCase();
+/* ── KYC / KYB Badge ── */
+function VerifBadge({ status, label: forceLabel }: { status: string | null; label?: string }) {
+  const s = (status ?? '').toLowerCase();
   const isVerified = s === 'verified' || s === 'approved';
   const isRejected = s === 'rejected';
-  const color = isVerified ? '#339D88' : isRejected ? '#FF756B' : '#9E4300';
-  const label = isVerified ? 'Verified' : isRejected ? 'Rejected' : 'Pending';
+  const isAction   = s === 'action_required';
+  const color = isVerified ? '#339D88' : isRejected ? '#FF756B' : isAction ? '#DC6803' : '#9E4300';
+  const label = forceLabel ?? (isVerified ? 'Verified' : isRejected ? 'Rejected' : isAction ? 'Action Req.' : s === 'not_started' ? 'Not Started' : 'Pending');
   return (
     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border whitespace-nowrap bg-white" style={{ borderColor: color, color }}>
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -137,7 +138,7 @@ function Pagination({ current, total, onChange }: { current: number; total: numb
 export default function UsersPage() {
   const router = useRouter();
   const { isAuthenticated } = useAuthStore();
-  const [pagination, setPagination] = useState<PaginatedResponse<AdminUserRecord> | null>(null);
+  const [pagination, setPagination] = useState<MetaPaginatedResponse<AdminUserRecord> | null>(null);
   const [users, setUsers] = useState<AdminUserRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -176,11 +177,11 @@ export default function UsersPage() {
 
   if (!isAuthenticated) return null;
 
-  const totalUsers = pagination?.total ?? 0;
+  const totalUsers = pagination?.meta?.total ?? 0;
   const activeCount = users.filter(u => u.isActive ?? u.is_active).length;
   const verifiedCount = users.filter(u => ['verified','approved'].includes(((u.kycStatus ?? u.kyc_status) ?? '').toLowerCase())).length;
   const pendingCount = users.filter(u => !['verified','approved','rejected'].includes(((u.kycStatus ?? u.kyc_status) ?? 'pending').toLowerCase())).length;
-  const totalPages = pagination?.last_page ?? 1;
+  const totalPages = pagination?.meta?.last_page ?? 1;
 
   return (
     <div className="flex h-screen bg-white font-['DM_Sans']">
@@ -222,10 +223,10 @@ export default function UsersPage() {
           {/* Table — Figma: gray thead bg, border, rounded container */}
           <div className="rounded-xl border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[900px]">
+              <table className="w-full text-sm min-w-[1300px]">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
-                    {['User','Status','KYC','USD Balance','NGN Balance','YUAN Balance','Last Login','Action'].map(h => (
+                    {['User','Changpay ID','Status','KYC','KYB','Email Verified','USD Balance','NGN Balance','YUAN Balance','Joined','Last Login','Action'].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap first:pl-6 last:pr-6">
                         {h}
                       </th>
@@ -236,12 +237,15 @@ export default function UsersPage() {
                   {isLoading ? (
                     [...Array(8)].map((_, i) => (
                       <tr key={i}>
-                        {[...Array(8)].map((_, j) => <td key={j} className="px-4 py-3.5"><Sk/></td>)}
+                        {[...Array(12)].map((_, j) => <td key={j} className="px-4 py-3.5"><Sk/></td>)}
                       </tr>
                     ))
                   ) : users.length === 0 ? (
-                    <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">No users found</td></tr>
-                  ) : users.map(user => (
+                    <tr><td colSpan={12} className="px-4 py-12 text-center text-sm text-gray-400">No users found</td></tr>
+                  ) : users.map(user => {
+                    const emailVerified = user.emailVerified;
+                    const joined = user.createdAt ?? user.created_at;
+                    return (
                     <tr key={user.id} className="hover:bg-gray-50/60 transition-colors">
                       {/* User */}
                       <td className="px-4 py-3.5 pl-6 whitespace-nowrap">
@@ -255,6 +259,10 @@ export default function UsersPage() {
                           </div>
                         </div>
                       </td>
+                      {/* Changpay ID */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <span className="text-xs font-mono font-medium text-gray-700">{user.changpayId ?? user.changpay_id ?? '—'}</span>
+                      </td>
                       {/* Status */}
                       <td className="px-4 py-3.5 whitespace-nowrap">
                         <button onClick={() => handleToggle(user)} disabled={togglingId === user.id} className="disabled:opacity-50">
@@ -262,19 +270,39 @@ export default function UsersPage() {
                         </button>
                       </td>
                       {/* KYC */}
-                      <td className="px-4 py-3.5 whitespace-nowrap"><KYCBadge status={user.kycStatus ?? user.kyc_status}/></td>
+                      <td className="px-4 py-3.5 whitespace-nowrap"><VerifBadge status={user.kycStatus ?? user.kyc_status}/></td>
+                      {/* KYB */}
+                      <td className="px-4 py-3.5 whitespace-nowrap"><VerifBadge status={user.kybStatus ?? user.kyb_status}/></td>
+                      {/* Email Verified */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        {emailVerified == null
+                          ? <span className="text-gray-400 text-sm">—</span>
+                          : emailVerified
+                            ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 6 9 17l-5-5"/></svg>Verified</span>
+                            : <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 8v4m0 4h.01"/><circle cx="12" cy="12" r="10"/></svg>Unverified</span>
+                        }
+                      </td>
                       {/* Balances */}
                       <td className="px-4 py-3.5 whitespace-nowrap"><Bal value={user.balances?.USD} flag="🇺🇸" symbol="$"/></td>
                       <td className="px-4 py-3.5 whitespace-nowrap"><Bal value={user.balances?.NGN} flag="🇳🇬" symbol="₦"/></td>
                       <td className="px-4 py-3.5 whitespace-nowrap"><Bal value={user.balances?.YAN} flag="🇨🇳" symbol="¥"/></td>
+                      {/* Joined */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        {joined
+                          ? <div>
+                              <p className="text-xs text-gray-800 font-medium">{new Date(joined).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</p>
+                              <p className="text-[11px] text-gray-400">{timeAgo(joined)}</p>
+                            </div>
+                          : <span className="text-gray-400 text-sm">—</span>}
+                      </td>
                       {/* Last Login */}
                       <td className="px-4 py-3.5 whitespace-nowrap">
-                        {(user.lastLoginAt ?? user.last_login_at) ? (
-                          <div>
-                            <p className="text-xs text-gray-800 font-medium">{formatLoginDate(user.lastLoginAt ?? user.last_login_at)}</p>
-                            <p className="text-[11px] text-gray-400">{timeAgo(user.lastLoginAt ?? user.last_login_at)}</p>
-                          </div>
-                        ) : <span className="text-gray-400 text-sm">—</span>}
+                        {(user.lastLoginAt ?? user.last_login_at)
+                          ? <div>
+                              <p className="text-xs text-gray-800 font-medium">{formatLoginDate(user.lastLoginAt ?? user.last_login_at)}</p>
+                              <p className="text-[11px] text-gray-400">{timeAgo(user.lastLoginAt ?? user.last_login_at)}</p>
+                            </div>
+                          : <span className="text-gray-400 text-sm">—</span>}
                       </td>
                       {/* Action */}
                       <td className="px-4 py-3.5 pr-6 whitespace-nowrap">
@@ -285,7 +313,8 @@ export default function UsersPage() {
                         </button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -293,7 +322,7 @@ export default function UsersPage() {
             {/* Pagination row — Figma style */}
             <div className="px-6 py-3.5 border-t border-gray-200 bg-white flex items-center justify-between">
               <p className="text-xs text-gray-500">
-                {pagination ? `Showing ${pagination.from ?? 1} to ${pagination.to ?? users.length} of ${totalUsers.toLocaleString()} results` : ''}
+                {pagination ? `Showing ${pagination.meta?.from ?? 1} to ${pagination.meta?.to ?? users.length} of ${totalUsers.toLocaleString()} results` : ''}
               </p>
               <Pagination current={currentPage} total={totalPages} onChange={p => setCurrentPage(p)}/>
             </div>
