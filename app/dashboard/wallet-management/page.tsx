@@ -484,9 +484,27 @@ export default function WalletManagementPage() {
 
                 <div className="bg-[#F8F9FA] rounded-2xl border border-gray-200 p-6">
                   <p className="text-xs text-gray-500 mb-3">Transaction Volume</p>
-                  {loadingStats ? <Skeleton className="h-10 w-28" /> : (
-                    <p className="text-4xl font-bold text-gray-400">—</p>
-                  )}
+                  {loadingStats ? <Skeleton className="h-10 w-28" /> : (() => {
+                    const topups = stats?.today?.topups_total ?? {};
+                    const convs  = stats?.today?.conversions_total ?? {};
+                    const currencies = Array.from(new Set([...Object.keys(topups), ...Object.keys(convs)]));
+                    if (currencies.length === 0) return <p className="text-4xl font-bold text-gray-400">—</p>;
+                    return (
+                      <div className="space-y-1.5 mt-1">
+                        {currencies.map((cur) => {
+                          const total = (Number(topups[cur] ?? 0) + Number(convs[cur] ?? 0));
+                          return (
+                            <div key={cur} className="flex items-center justify-between">
+                              <span className="text-xs text-gray-500">{cur}</span>
+                              <span className="text-sm font-bold text-gray-900">
+                                {currencySymbol(cur)}{total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 

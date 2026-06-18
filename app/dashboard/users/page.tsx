@@ -15,8 +15,10 @@ function getInitials(first: string | null, last: string | null, email: string) {
   return email.slice(0, 2).toUpperCase();
 }
 function getFullName(u: AdminUserRecord) {
-  if (u.first_name && u.last_name) return `${u.first_name} ${u.last_name}`;
-  if (u.first_name) return u.first_name;
+  const first = u.firstName ?? u.first_name;
+  const last  = u.lastName  ?? u.last_name;
+  if (first && last) return `${first} ${last}`;
+  if (first) return first;
   return u.email;
 }
 function timeAgo(dateStr: string | null | undefined): string {
@@ -44,7 +46,7 @@ const COLORS = ['from-teal-400 to-teal-600','from-blue-400 to-blue-600','from-pu
 function Avatar({ user }: { user: AdminUserRecord }) {
   return (
     <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${COLORS[user.id % COLORS.length]} flex items-center justify-center text-white text-[11px] font-bold shrink-0`}>
-      {getInitials(user.first_name, user.last_name, user.email)}
+      {getInitials(user.firstName ?? user.first_name, user.lastName ?? user.last_name, user.email)}
     </div>
   );
 }
@@ -84,12 +86,12 @@ function KYCBadge({ status }: { status: string | null }) {
 }
 
 /* ── Balance cell ── */
-function Bal({ value, flag }: { value?: string | number | null; flag: string }) {
-  if (!value || value === '0' || value === 0) return <span className="text-gray-400 text-sm">—</span>;
+function Bal({ value, flag, symbol }: { value?: string | number | null; flag: string; symbol: string }) {
+  if (value == null) return <span className="text-gray-400 text-sm">—</span>;
   return (
     <span className="flex items-center gap-1 text-sm text-gray-800 whitespace-nowrap">
       <span className="text-base leading-none">{flag}</span>
-      ${Number(value).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+      {symbol}{Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
     </span>
   );
 }
@@ -175,9 +177,9 @@ export default function UsersPage() {
   if (!isAuthenticated) return null;
 
   const totalUsers = pagination?.total ?? 0;
-  const activeCount = users.filter(u => u.is_active).length;
-  const verifiedCount = users.filter(u => ['verified','approved'].includes((u.kyc_status ?? '').toLowerCase())).length;
-  const pendingCount = users.filter(u => !['verified','approved','rejected'].includes((u.kyc_status ?? 'pending').toLowerCase())).length;
+  const activeCount = users.filter(u => u.isActive ?? u.is_active).length;
+  const verifiedCount = users.filter(u => ['verified','approved'].includes(((u.kycStatus ?? u.kyc_status) ?? '').toLowerCase())).length;
+  const pendingCount = users.filter(u => !['verified','approved','rejected'].includes(((u.kycStatus ?? u.kyc_status) ?? 'pending').toLowerCase())).length;
   const totalPages = pagination?.last_page ?? 1;
 
   return (
@@ -246,7 +248,9 @@ export default function UsersPage() {
                         <div className="flex items-center gap-2.5">
                           <Avatar user={user}/>
                           <div>
-                            <p className="text-sm font-semibold text-gray-900 leading-tight">{getFullName(user)}</p>
+                            <p className="text-sm font-semibold text-gray-900 leading-tight">
+                              {[user.firstName ?? user.first_name, user.lastName ?? user.last_name].filter(Boolean).join(' ') || '—'}
+                            </p>
                             <p className="text-[11px] text-gray-400">{user.email}</p>
                           </div>
                         </div>
@@ -254,21 +258,21 @@ export default function UsersPage() {
                       {/* Status */}
                       <td className="px-4 py-3.5 whitespace-nowrap">
                         <button onClick={() => handleToggle(user)} disabled={togglingId === user.id} className="disabled:opacity-50">
-                          <StatusBadge isActive={user.is_active}/>
+                          <StatusBadge isActive={user.isActive ?? user.is_active}/>
                         </button>
                       </td>
                       {/* KYC */}
-                      <td className="px-4 py-3.5 whitespace-nowrap"><KYCBadge status={user.kyc_status}/></td>
+                      <td className="px-4 py-3.5 whitespace-nowrap"><KYCBadge status={user.kycStatus ?? user.kyc_status}/></td>
                       {/* Balances */}
-                      <td className="px-4 py-3.5 whitespace-nowrap"><Bal value={(user as any).usd_balance} flag="🇺🇸"/></td>
-                      <td className="px-4 py-3.5 whitespace-nowrap"><Bal value={(user as any).ngn_balance} flag="🇳🇬"/></td>
-                      <td className="px-4 py-3.5 whitespace-nowrap"><Bal value={(user as any).yuan_balance} flag="🇨🇳"/></td>
+                      <td className="px-4 py-3.5 whitespace-nowrap"><Bal value={user.balances?.USD} flag="🇺🇸" symbol="$"/></td>
+                      <td className="px-4 py-3.5 whitespace-nowrap"><Bal value={user.balances?.NGN} flag="🇳🇬" symbol="₦"/></td>
+                      <td className="px-4 py-3.5 whitespace-nowrap"><Bal value={user.balances?.YAN} flag="🇨🇳" symbol="¥"/></td>
                       {/* Last Login */}
                       <td className="px-4 py-3.5 whitespace-nowrap">
-                        {(user.last_login_at || user.updated_at) ? (
+                        {(user.lastLoginAt ?? user.last_login_at) ? (
                           <div>
-                            <p className="text-xs text-gray-800 font-medium">{formatLoginDate(user.last_login_at ?? user.updated_at)}</p>
-                            <p className="text-[11px] text-gray-400">{timeAgo(user.last_login_at ?? user.updated_at)}</p>
+                            <p className="text-xs text-gray-800 font-medium">{formatLoginDate(user.lastLoginAt ?? user.last_login_at)}</p>
+                            <p className="text-[11px] text-gray-400">{timeAgo(user.lastLoginAt ?? user.last_login_at)}</p>
                           </div>
                         ) : <span className="text-gray-400 text-sm">—</span>}
                       </td>

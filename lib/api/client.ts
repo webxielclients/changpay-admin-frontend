@@ -182,8 +182,9 @@ export const authApi = {
 // List endpoint returns snake_case; detail endpoint returns camelCase.
 // The page casts accordingly — see user-detail-page.tsx.
 export interface AdminUserRecord {
-  last_login_at: string;
   id: number;
+  email: string;
+  // snake_case (legacy / detail endpoint)
   first_name: string;
   last_name: string;
   phone_number: string | null;
@@ -192,7 +193,6 @@ export interface AdminUserRecord {
   state: string | null;
   city: string | null;
   address: string | null;
-  email: string;
   email_verified_at: string | null;
   created_at: string;
   updated_at: string;
@@ -203,9 +203,10 @@ export interface AdminUserRecord {
   deleted_at: string | null;
   changpay_id: string | null;
   is_active: boolean;
-  // camelCase variants returned by GET /users/{id} and toggle-status
-  firstName?: string;
-  lastName?: string;
+  last_login_at: string | null;
+  // camelCase variants (list + detail endpoints)
+  firstName?: string | null;
+  lastName?: string | null;
   phoneNumber?: string | null;
   dateOfBirth?: string | null;
   changpayId?: string | null;
@@ -214,6 +215,9 @@ export interface AdminUserRecord {
   isActive?: boolean;
   emailVerified?: boolean;
   createdAt?: string | null;
+  lastLoginAt?: string | null;
+  avatarUrl?: string | null;
+  balances?: { USD: string; NGN: string; YAN: string };
 }
 
 export interface PaginatedResponse<T> {
