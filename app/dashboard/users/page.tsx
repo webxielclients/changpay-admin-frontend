@@ -233,6 +233,7 @@ export default function UsersPage() {
                     ))}
                   </tr>
                 </thead>
+                
                 <tbody className="bg-white divide-y divide-gray-100">
                   {isLoading ? (
                     [...Array(8)].map((_, i) => (
