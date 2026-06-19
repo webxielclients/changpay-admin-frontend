@@ -208,7 +208,7 @@ export default function UsersPage() {
           <div className="grid grid-cols-4 gap-4">
             {[
               { label: 'Total Users', val: totalUsers.toLocaleString(), cls: 'text-gray-900' },
-              { label: 'Active', val: String(activeCount || (pagination?.total ?? 0)), cls: 'text-emerald-500' },
+              { label: 'Active', val: String(activeCount || (pagination?.meta?.total ?? 0)), cls: 'text-emerald-500' },
               { label: 'KYC Verified', val: String(verifiedCount), cls: 'text-emerald-500' },
               { label: 'KYC Pending', val: String(pendingCount), cls: 'text-orange-500' },
             ].map(s => (
