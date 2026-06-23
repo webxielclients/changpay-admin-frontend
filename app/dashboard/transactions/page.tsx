@@ -517,15 +517,18 @@ const ARROW = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'
 const dropCls = "pl-3 pr-8 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-600 bg-white focus:outline-none focus:border-gray-400 appearance-none cursor-pointer shrink-0";
 const dropStyle = { backgroundImage: ARROW, backgroundRepeat: 'no-repeat' as const, backgroundPosition: 'right 10px center' };
 
-function FilterBar({ product, setProduct, status, setStatus, search, setSearch }: {
+function FilterBar({ product, setProduct, status, setStatus, search, setSearch, dateFrom, setDateFrom, dateTo, setDateTo, onExport }: {
   product: ProductFilter; setProduct: (v: ProductFilter) => void;
   status: string; setStatus: (v: string) => void;
   search: string; setSearch: (v: string) => void;
+  dateFrom: string; setDateFrom: (v: string) => void;
+  dateTo: string; setDateTo: (v: string) => void;
+  onExport?: () => void;
 }) {
   return (
-    <div className="flex items-center gap-3 mb-6 w-full">
-      {/* Search — grows to fill remaining space */}
-      <div className="relative flex-1 min-w-0">
+    <div className="flex items-center gap-3 mb-6 w-full flex-wrap">
+      {/* Search */}
+      <div className="relative flex-1 min-w-[200px]">
         <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
         <input type="text" value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Search by name, wallet ID or transaction ID..."
@@ -535,7 +538,6 @@ function FilterBar({ product, setProduct, status, setStatus, search, setSearch }
       <select value={product} onChange={e => setProduct(e.target.value as ProductFilter)} className={dropCls} style={dropStyle}>
         <option value="">All Products</option>
         <option value="crypto">Crypto → Cash</option>
-        <option value="gift-card">Gift Card → Cash</option>
         <option value="pay-china">Payment to China</option>
       </select>
       {/* Status */}
@@ -549,18 +551,27 @@ function FilterBar({ product, setProduct, status, setStatus, search, setSearch }
         <option value="refunded">Refunded</option>
         <option value="on-going">On Going</option>
       </select>
-      {/* Date */}
-      <div className="flex items-center gap-2 px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-400 cursor-pointer hover:bg-gray-50 shrink-0">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-        mm/dd/yyyy
+      {/* Date From */}
+      <div className="relative shrink-0">
+        <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+          className="pl-7 pr-2 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400 shrink-0" />
       </div>
-      {/* Risk */}
-      <select className={dropCls} style={dropStyle}>
-        <option value="">Risk Flag</option>
-        <option value="high">High</option>
-        <option value="medium">Medium</option>
-        <option value="none">None</option>
-      </select>
+      {/* Date To */}
+      <div className="relative shrink-0">
+        <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+          className="pl-7 pr-2 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400 shrink-0" />
+      </div>
+      {/* Export */}
+      {onExport && (
+        <button onClick={onExport}
+          className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-white rounded-xl shrink-0"
+          style={{ backgroundColor: '#009F51' }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export
+        </button>
+      )}
     </div>
   );
 }
@@ -624,6 +635,12 @@ export default function TransactionsPage() {
   const [convStatus, setConvStatus] = useState('');
   const [convSearch, setConvSearch] = useState('');
 
+  /* ── Date range filters ── */
+  const [overviewDateFrom, setOverviewDateFrom] = useState('');
+  const [overviewDateTo,   setOverviewDateTo]   = useState('');
+  const [convDateFrom,     setConvDateFrom]     = useState('');
+  const [convDateTo,       setConvDateTo]       = useState('');
+
   /* ── Detail panel ── */
   const [panel, setPanel] = useState<{ id: number; product: 'crypto'|'pay-china'|'gift-card'|'conversion'|'general' } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -636,10 +653,10 @@ export default function TransactionsPage() {
     catch { } finally { setLoadingAllStats(false); }
   }, []);
 
-  const fetchAll = useCallback(async (pg: number, q: string, status: string) => {
+  const fetchAll = useCallback(async (pg: number, q: string, status: string, dateFrom?: string, dateTo?: string) => {
     try {
       setLoadingAll(true); setError(null);
-      const r = await transactionsApi.getAll({ page: pg, per_page: 15, search: q || undefined, status: status || undefined });
+      const r = await transactionsApi.getAll({ page: pg, per_page: 15, search: q || undefined, status: status || undefined, date_from: dateFrom || undefined, date_to: dateTo || undefined });
       if (r.status && r.data) { const d = r.data as any; setAllTxs(d.data ?? []); setAllPag(d); }
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); }
     finally { setLoadingAll(false); }
@@ -678,10 +695,10 @@ export default function TransactionsPage() {
     catch { } finally { setLoadingConvStats(false); }
   }, []);
 
-  const fetchConv = useCallback(async (pg: number, q: string, status: string) => {
+  const fetchConv = useCallback(async (pg: number, q: string, status: string, dateFrom?: string, dateTo?: string) => {
     try {
       setLoadingConv(true); setError(null);
-      const r = await transactionsApi.getConversions({ page: pg, per_page: 15, search: q || undefined, status: status || undefined });
+      const r = await transactionsApi.getConversions({ page: pg, per_page: 15, search: q || undefined, status: status || undefined, date_from: dateFrom || undefined, date_to: dateTo || undefined });
       if (r.status && r.data) { const d = r.data as any; setConvTxs(d.data ?? []); setConvPag(d); }
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); }
     finally { setLoadingConv(false); }
@@ -701,20 +718,46 @@ export default function TransactionsPage() {
 
   if (!isAuthenticated) return null;
 
+  /* ── CSV export helper ── */
+  const exportTxCSV = (rows: any[], filename: string) => {
+    const headers = ['Txn ID','User','Type','Currency','Amount','Status','Date'];
+    const data = rows.map((tx: any) => {
+      const u = tx.user ?? {};
+      const name = [u.firstName ?? u.first_name, u.lastName ?? u.last_name].filter(Boolean).join(' ') || u.email || '';
+      return [tx.reference ?? tx.id, name, tx.type ?? '', tx.currency ?? '', tx.amount ?? '', tx.status ?? '', tx.createdAt ?? ''];
+    });
+    const csv = [headers, ...data].map(r => r.map((c: any) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `${filename}-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   /* ── Handler: product switch ── */
   const handleProductChange = (p: ProductFilter) => {
-    setProduct(p); setSharedStatus(''); setSharedSearch('');
+    setProduct(p); setSharedStatus(''); setSharedSearch(''); setOverviewDateFrom(''); setOverviewDateTo('');
     if (p === '') { setAllPage(1); setAllStatus(''); setAllSearch(''); fetchAll(1,'',''); }
     else if (p === 'crypto') { setCryptoPage(1); setCryptoStatus(''); setCryptoSearch(''); fetchCryptoStats(); fetchCrypto(1,'',''); }
     else if (p === 'pay-china') { setChinaPage(1); setChinaStatus(''); setChinaSearch(''); fetchChinaStats(); fetchChina(1,'',''); }
-    // gift-card: no endpoint yet — just show empty table
   };
 
   const handleStatusChange = (s: string) => {
     setSharedStatus(s);
-    if (product === '') { setAllStatus(s); setAllPage(1); }
+    if (product === '') { setAllStatus(s); setAllPage(1); fetchAll(1, allSearch, s, overviewDateFrom, overviewDateTo); }
     else if (product === 'crypto') { setCryptoStatus(s); setCryptoPage(1); }
     else if (product === 'pay-china') { setChinaStatus(s); setChinaPage(1); }
+  };
+
+  const handleOverviewDateFrom = (v: string) => {
+    setOverviewDateFrom(v);
+    fetchAll(1, allSearch, allStatus, v, overviewDateTo);
+    setAllPage(1);
+  };
+
+  const handleOverviewDateTo = (v: string) => {
+    setOverviewDateTo(v);
+    fetchAll(1, allSearch, allStatus, overviewDateFrom, v);
+    setAllPage(1);
   };
 
   const handleSearchChange = (q: string) => {
@@ -773,6 +816,12 @@ export default function TransactionsPage() {
                   product={product} setProduct={handleProductChange}
                   status={sharedStatus} setStatus={handleStatusChange}
                   search={sharedSearch} setSearch={handleSearchChange}
+                  dateFrom={overviewDateFrom} setDateFrom={handleOverviewDateFrom}
+                  dateTo={overviewDateTo} setDateTo={handleOverviewDateTo}
+                  onExport={() => {
+                    const active = product === 'crypto' ? cryptoTxs : product === 'pay-china' ? chinaTxs : allTxs;
+                    exportTxCSV(active, product || 'transactions');
+                  }}
                 />
 
                 {/* ── DEFAULT: All Transactions ── */}
@@ -960,7 +1009,8 @@ export default function TransactionsPage() {
                     <h2 className="text-xl font-bold text-gray-900">Inter-Wallet Conversions</h2>
                     <p className="text-sm text-gray-500 mt-0.5">Track all wallet-to-wallet currency conversions</p>
                   </div>
-                  <button className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-white rounded-xl shrink-0" style={{ backgroundColor: '#009F51' }}>
+                  <button onClick={() => exportTxCSV(convTxs, 'conversions')}
+                    className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-white rounded-xl shrink-0" style={{ backgroundColor: '#009F51' }}>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     Export
                   </button>
@@ -970,20 +1020,26 @@ export default function TransactionsPage() {
                 <div className="flex items-center gap-3 mb-5 w-full">
                   <div className="relative flex-1 min-w-0">
                     <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                    <input type="text" value={convSearch} onChange={e => { setConvSearch(e.target.value); deb(() => { setConvPage(1); fetchConv(1, e.target.value, convStatus); }); }}
+                    <input type="text" value={convSearch} onChange={e => { setConvSearch(e.target.value); deb(() => { setConvPage(1); fetchConv(1, e.target.value, convStatus, convDateFrom, convDateTo); }); }}
                       placeholder="Search by name, wallet ID or transaction ID..."
                       className="w-full pl-10 pr-4 py-2.5 text-sm bg-white border border-gray-200 rounded-full placeholder-gray-400 focus:outline-none focus:border-gray-400"/>
                   </div>
-                  <select value={convStatus} onChange={e => { setConvStatus(e.target.value); setConvPage(1); }}
+                  <select value={convStatus} onChange={e => { setConvStatus(e.target.value); setConvPage(1); fetchConv(1, convSearch, e.target.value, convDateFrom, convDateTo); }}
                     className={dropCls} style={dropStyle}>
                     <option value="">All Status</option>
                     <option value="completed">Completed</option>
                     <option value="pending">Pending</option>
                     <option value="failed">Failed</option>
                   </select>
-                  <div className="flex items-center gap-2 px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-400 cursor-pointer hover:bg-gray-50 shrink-0">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-                    mm/dd/yyyy
+                  <div className="relative shrink-0">
+                    <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                    <input type="date" value={convDateFrom} onChange={e => { setConvDateFrom(e.target.value); setConvPage(1); fetchConv(1, convSearch, convStatus, e.target.value, convDateTo); }}
+                      className="pl-7 pr-2 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+                  </div>
+                  <div className="relative shrink-0">
+                    <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                    <input type="date" value={convDateTo} onChange={e => { setConvDateTo(e.target.value); setConvPage(1); fetchConv(1, convSearch, convStatus, convDateFrom, e.target.value); }}
+                      className="pl-7 pr-2 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400" />
                   </div>
                 </div>
 

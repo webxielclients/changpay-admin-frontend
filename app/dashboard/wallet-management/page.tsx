@@ -158,15 +158,24 @@ function SearchBar({ value, onChange, placeholder }: { value: string; onChange: 
 }
 
 // ─── Export button ────────────────────────────────────────────────────────────
-function ExportBtn() {
+function ExportBtn({ onClick }: { onClick?: () => void }) {
   return (
-    <button className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-medium hover:bg-emerald-600 transition-colors flex-shrink-0">
+    <button onClick={onClick} className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-medium hover:bg-emerald-600 transition-colors flex-shrink-0">
       <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
       </svg>
       Export
     </button>
   );
+}
+
+// ─── CSV helpers ──────────────────────────────────────────────────────────────
+function downloadCSV(filename: string, headers: string[], rows: (string | number | null | undefined)[][]) {
+  const csv = [headers, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `${filename}-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ─── Status filter dropdown ────────────────────────────────────────────────────
@@ -375,6 +384,18 @@ export default function WalletManagementPage() {
       setCurrentPage(1);
       fetchCurrencyWallets(selectedCurrency, 1, val);
     }, 400);
+  };
+
+  const handleTopupSearch = (val: string) => {
+    setTopupSearch(val);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(() => fetchTopups(val, topupFilter), 400);
+  };
+
+  const handleSwapSearch = (val: string) => {
+    setSwapSearch(val);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    searchTimeout.current = setTimeout(() => fetchSwaps(val, swapFilter), 400);
   };
 
   const handleCurrencyChange = (currency: CurrencyType) => {
@@ -690,9 +711,10 @@ export default function WalletManagementPage() {
               {cwSubTab === 'topup' && (
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
-                    <SearchBar value={topupSearch} onChange={setTopupSearch} placeholder="Search..." />
-                    <StatusFilter value={topupFilter} onChange={setTopupFilter} />
-                    <ExportBtn />
+                    <SearchBar value={topupSearch} onChange={handleTopupSearch} placeholder="Search..." />
+                    <StatusFilter value={topupFilter} onChange={(v) => { setTopupFilter(v); fetchTopups(topupSearch, v); }} />
+                    <ExportBtn onClick={() => topups && downloadCSV('topups', ['Txn ID','User','Wallet ID','Amount','Currency','Method','Status','Timestamp','Reference'],
+                      topups.map(r => [r.reference ?? r.id, r.user ? `${r.user.firstName} ${r.user.lastName}`.trim() : '', r.wallet?.id ?? '', r.amount, r.currency, r.provider, r.status, r.createdAt, r.reference]))} />
                   </div>
                   <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                     <div className="overflow-x-auto">
@@ -729,9 +751,10 @@ export default function WalletManagementPage() {
               {cwSubTab === 'swap' && (
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
-                    <SearchBar value={swapSearch} onChange={setSwapSearch} placeholder="Search..." />
-                    <StatusFilter value={swapFilter} onChange={setSwapFilter} />
-                    <ExportBtn />
+                    <SearchBar value={swapSearch} onChange={handleSwapSearch} placeholder="Search..." />
+                    <StatusFilter value={swapFilter} onChange={(v) => { setSwapFilter(v); fetchSwaps(swapSearch, v); }} />
+                    <ExportBtn onClick={() => swaps && downloadCSV('swaps', ['Txn ID','User','From Amount','From Currency','To Amount','To Currency','Rate','Status','Timestamp','Reference'],
+                      swaps.map(r => [r.reference ?? r.id, r.user ? `${r.user.firstName} ${r.user.lastName}`.trim() : '', r.fromAmount, r.fromCurrency, r.toAmount, r.toCurrency, r.rate, r.status, r.createdAt, r.reference]))} />
                   </div>
                   <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                     <div className="overflow-x-auto">
@@ -773,7 +796,9 @@ export default function WalletManagementPage() {
               <div><h2 className="text-lg font-bold text-gray-900">System-Wide Transaction Ledger</h2><p className="text-sm text-gray-500 mt-0.5">Immutable record of all wallet balance changes</p></div>
               <div className="flex items-center gap-3">
                 <SearchBar value={ledgerSearch} onChange={setLedgerSearch} placeholder="Search by wallet, user, reference, or description..." />
-                <ExportBtn />
+                <ExportBtn onClick={() => ledger && downloadCSV('ledger',
+                  ['Time','User','Wallet ID','Currency','Action','Amount','Balance Before','Balance After','Tx Type','Status','Reference'],
+                  ledger.map(r => [r.createdAt, `${r.wallet.user.firstName} ${r.wallet.user.lastName}`.trim(), r.wallet.id, r.wallet.currency, r.action, r.amount, r.balanceBefore, r.balanceAfter, r.transaction.type, r.transaction.status, r.transaction.reference]))} />
               </div>
               <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">

@@ -384,24 +384,10 @@ export interface DashboardOverviewData {
 }
 
 export interface ChartDataPoint {
-  id: number;
-  user_id: number;
-  wallet_id: number;
-  type: string;
-  amount: string;
-  currency: string;
-  status: string;
-  reference: string;
-  provider: string;
-  provider_reference: string;
-  description: string;
-  metadata: unknown[];
-  created_at: string;
-  updated_at: string;
-  fee: string;
-  idempotency_key: string;
-  completed_at: string;
-  category: string;
+  period: number | string;
+  count: number;
+  volume: number;
+  change_percent: number | null;
 }
 
 export interface ChartData {
@@ -1261,8 +1247,16 @@ export const promotionsApi = {
 
 export interface Permission {
   id: number;
-  module: string;
+  code: string;
   action: string;
+  label: string;
+  description: string;
+}
+
+export interface PermissionGroup {
+  module: string;
+  label: string;
+  permissions: Permission[];
 }
 
 export interface RoleRecord {
@@ -1303,7 +1297,7 @@ export const rolesApi2 = {
 
   /** GET /roles/permissions — all available permissions grouped by module */
   getPermissions: () =>
-    authedRequest<{ status: boolean; message: string; data: Permission[] }>('/roles/permissions'),
+    authedRequest<{ status: boolean; message: string; data: PermissionGroup[] }>('/roles/permissions'),
 
   /** GET /roles/admins — paginated admin users with assigned roles */
   getAdmins: (params?: { search?: string; role?: string; page?: number }) => {

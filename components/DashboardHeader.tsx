@@ -21,7 +21,7 @@ interface NotificationItem {
 
 export default function DashboardHeader({ title, subtitle }: DashboardHeaderProps) {
   const router = useRouter();
-  const { user: authUser, token, logout } = useAuthStore();
+  const { user: authUser, token, logout, setAvatar } = useAuthStore();
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -31,6 +31,16 @@ export default function DashboardHeader({ title, subtitle }: DashboardHeaderProp
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setAvatar(reader.result as string);
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
 
   const totalNotifications = notifications.reduce((sum, n) => sum + n.count, 0);
 
@@ -183,12 +193,27 @@ export default function DashboardHeader({ title, subtitle }: DashboardHeaderProp
 
         {/* Profile dropdown */}
         <div className="relative" ref={dropdownRef}>
+          {/* Hidden file input for avatar upload */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleAvatarFileChange}
+          />
           <button
             onClick={() => { setNotifOpen(false); setDropdownOpen((o) => !o); }}
             className="flex items-center gap-3 hover:bg-gray-50 rounded-xl px-2 py-1.5 transition-colors"
           >
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-              {getInitials()}
+            <div
+              className="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 cursor-pointer ring-2 ring-transparent hover:ring-emerald-400 transition-all"
+              onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+              title="Click to change profile picture"
+            >
+              {authUser?.avatar_url
+                ? <img src={authUser.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                : getInitials()
+              }
             </div>
             <div className="text-left hidden sm:block">
               <p className="text-sm font-semibold text-gray-900 leading-tight">{displayName}</p>
@@ -204,9 +229,21 @@ export default function DashboardHeader({ title, subtitle }: DashboardHeaderProp
 
           {dropdownOpen && (
             <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-100">
-                <p className="text-sm font-semibold text-gray-900 truncate">{displayName}</p>
-                <p className="text-xs text-gray-500 truncate">{authUser?.email}</p>
+              <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
+                <div
+                  className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                  onClick={() => { setDropdownOpen(false); fileInputRef.current?.click(); }}
+                  title="Click to change profile picture"
+                >
+                  {authUser?.avatar_url
+                    ? <img src={authUser.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                    : getInitials()
+                  }
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{displayName}</p>
+                  <p className="text-xs text-gray-500 truncate">{authUser?.email}</p>
+                </div>
               </div>
 
               <div className="py-1">

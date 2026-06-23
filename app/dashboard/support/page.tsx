@@ -22,6 +22,17 @@ function formatDate(s: string | null | undefined) {
   } catch { return s; }
 }
 
+// ─── CSV export ───────────────────────────────────────────────────────────────
+function downloadCSV(filename: string, headers: string[], rows: string[][]) {
+  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  const lines = [headers.map(escape).join(','), ...rows.map((r) => r.map(escape).join(','))];
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ─── Priority badge — outline pill ────────────────────────────────────────────
 function PriorityBadge({ priority }: { priority: string }) {
   const p = priority?.toLowerCase();
@@ -618,7 +629,22 @@ export default function SupportDisputesPage() {
                   <h2 className="text-lg font-bold text-emerald-600">Support Tickets</h2>
                   <p className="text-sm text-gray-500 mt-0.5">Create and manage support tickets with priority levels and assignments</p>
                 </div>
-                <button className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors">
+                <button
+                  onClick={() => downloadCSV('support-tickets.csv',
+                    ['Ticket ID', 'Client Name', 'Email', 'Subject', 'Type', 'Priority', 'Status', 'Date'],
+                    tickets.map((t) => [
+                      (t as any).reference ?? `TX-${t.id}`,
+                      t.user ? `${t.user.firstName ?? ''} ${t.user.lastName ?? ''}`.trim() || t.user.email : '',
+                      t.user?.email ?? '',
+                      t.subject,
+                      t.category ?? '',
+                      t.priority,
+                      t.status,
+                      t.createdAt ?? '',
+                    ])
+                  )}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors"
+                >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
                   </svg>
@@ -695,7 +721,22 @@ export default function SupportDisputesPage() {
                   <h2 className="text-lg font-bold text-emerald-600">Dispute Management</h2>
                   <p className="text-sm text-gray-500 mt-0.5">Handle transaction disputes and chargebacks</p>
                 </div>
-                <button className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors">
+                <button
+                  onClick={() => downloadCSV('disputes.csv',
+                    ['Dispute ID', 'Client Name', 'Email', 'Subject', 'Type', 'Priority', 'Status', 'Date'],
+                    disputes.map((d) => [
+                      (d as any).reference ?? `TX-${d.id}`,
+                      d.user ? `${d.user.firstName ?? ''} ${d.user.lastName ?? ''}`.trim() || d.user.email : '',
+                      d.user?.email ?? '',
+                      d.subject,
+                      d.type ?? 'Dispute',
+                      (d as any).priority ?? 'medium',
+                      d.status,
+                      d.createdAt ?? '',
+                    ])
+                  )}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors"
+                >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
                   </svg>

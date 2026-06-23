@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { rolesApi2 } from '@/lib/api/client';
-import type { RoleRecord, Permission, AdminUserRecord2 } from '@/lib/api/client';
+import type { RoleRecord, Permission, PermissionGroup, AdminUserRecord2 } from '@/lib/api/client';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
 
@@ -14,14 +14,24 @@ function Skeleton({ className }: { className?: string }) {
   return <div className={`animate-pulse bg-gray-100 rounded-lg ${className ?? ''}`} />;
 }
 
-function groupPermissions(permissions: Permission[]): Record<string, Permission[]> {
-  return permissions.reduce((acc, p) => {
-    const mod = p.module ?? 'Other';
-    if (!acc[mod]) acc[mod] = [];
-    acc[mod].push(p);
-    return acc;
-  }, {} as Record<string, Permission[]>);
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min${mins !== 1 ? 's' : ''} ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hr${hours !== 1 ? 's' : ''} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} day${days !== 1 ? 's' : ''} ago`;
+  const months = Math.floor(days / 30);
+  return `${months} month${months !== 1 ? 's' : ''} ago`;
 }
+
+function adminDisplayName(admin: AdminUserRecord2): string {
+  const full = [admin.firstName, admin.lastName].filter(Boolean).join(' ');
+  return full || admin.email.split('@')[0];
+}
+
 
 // ─── Toggle switch ────────────────────────────────────────────────────────────
 function Toggle({ enabled, onChange, size = 'md' }: { enabled: boolean; onChange: (v: boolean) => void; size?: 'sm' | 'md' }) {
@@ -53,10 +63,10 @@ function AdminAvatar({ name, size = 9 }: { name: string; size?: number }) {
 
 // ─── Create/Edit Role Modal ───────────────────────────────────────────────────
 function RoleModal({
-  existing, allPermissions, onClose, onSaved,
+  existing, permGroups, onClose, onSaved,
 }: {
   existing: RoleRecord | null;
-  allPermissions: Permission[];
+  permGroups: PermissionGroup[];
   onClose: () => void;
   onSaved: (role: RoleRecord) => void;
 }) {
@@ -67,8 +77,6 @@ function RoleModal({
   const [selectedIds, setSelectedIds] = useState<number[]>(existing?.permissions?.map((p) => p.id) ?? []);
   const [saving,      setSaving]      = useState(false);
   const [error,       setError]       = useState<string | null>(null);
-
-  const grouped = groupPermissions(allPermissions);
 
   const toggle = (id: number) =>
     setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
@@ -96,39 +104,6 @@ function RoleModal({
       setSaving(false);
     }
   };
-
-  // Group labels mapped to display names
-  const groupLabel: Record<string, string> = {
-    users: 'User Management', transactions: 'Transactions', wallets: 'Wallet Management',
-    kyc: 'KYC / KYB', kyb: 'KYC / KYB', giftcards: 'Gift Cards',
-    banks: 'Banks & Payouts', payouts: 'Banks & Payouts',
-    compliance: 'Compliance', settings: 'System Settings', roles: 'Roles & Permissions',
-    fx: 'FX Engine',
-  };
-
-  // Static fallback groups — shown immediately, replaced by API data when loaded
-  const STATIC_GROUPS: Record<string, string[]> = {
-    'User Management':    ['View Users', 'Create Users', 'Edit Users', 'Delete Users', 'Freeze / Unfreeze Users'],
-    'Transactions':       ['View Transactions', 'Approve Transactions', 'Reject Transactions', 'Process Refunds'],
-    'Wallet Management':  ['View Wallets', 'Adjust Wallet Balances', 'Freeze / Unfreeze Wallets'],
-    'KYC / KYB':         ['View KYC Applications', 'Approve KYC', 'Reject KYC', 'View KYB Applications', 'Approve KYB'],
-    'Gift Cards':         ['View Gift Cards', 'Manage Gift Cards', 'Edit Gift Card Rates'],
-    'Banks & Payouts':    ['View Banks', 'View Payouts', 'Process Payouts'],
-    'Compliance':         ['View Compliance Reports', 'Export Compliance Data', 'Manage Risk Alerts'],
-    'System Settings':    ['View System Settings', 'Edit System Settings', 'Manage Roles & Permissions', 'View Audit Logs'],
-    'Roles & Permissions':['View roles', 'Create roles', 'Edit roles', 'Delete roles', 'Assign roles'],
-  };
-
-  // Merge kyc+kyb, banks+payouts into single display groups from API
-  const apiDisplayGroups: Record<string, Permission[]> = {};
-  Object.entries(grouped).forEach(([mod, perms]) => {
-    const label = groupLabel[mod] ?? mod.charAt(0).toUpperCase() + mod.slice(1);
-    apiDisplayGroups[label] = [...(apiDisplayGroups[label] ?? []), ...perms];
-  });
-
-  // Use API groups if loaded, else show static structure for display
-  const hasApiPerms = allPermissions.length > 0;
-  const displayGroups: Record<string, Permission[]> = hasApiPerms ? apiDisplayGroups : {};
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-end">
@@ -191,25 +166,31 @@ function RoleModal({
           {/* Permissions */}
           <div>
             <p className="text-sm font-medium text-gray-700 mb-3">Permissions *</p>
-            <div className="space-y-3">
-              {hasApiPerms ? (
-                Object.entries(displayGroups).map(([groupName, perms]) => {
-                  const uniquePerms = perms.filter((p, i, arr) => arr.findIndex((x) => x.id === p.id) === i);
-                  const allSelected = uniquePerms.every((p) => selectedIds.includes(p.id));
+            {permGroups.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-6">Loading permissions...</p>
+            ) : (
+              <div className="space-y-3">
+                {permGroups.map((group) => {
+                  const allSelected = group.permissions.every((p) => selectedIds.includes(p.id));
                   return (
-                    <div key={groupName} className="border border-gray-200 rounded-xl p-4">
+                    <div key={group.module} className="border border-gray-200 rounded-xl p-4">
                       <div className="flex items-center justify-between mb-3">
-                        <h4 className="text-sm font-bold text-gray-800">{groupName}</h4>
+                        <h4 className="text-sm font-bold text-gray-800">{group.label}</h4>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-gray-500">Select All</span>
-                          <Toggle enabled={allSelected} onChange={() => toggleModule(uniquePerms, allSelected)} size="sm" />
+                          <Toggle enabled={allSelected} onChange={() => toggleModule(group.permissions, allSelected)} size="sm" />
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-y-2.5 gap-x-4">
-                        {uniquePerms.map((p) => {
+                        {group.permissions.map((p) => {
                           const checked = selectedIds.includes(p.id);
                           return (
-                            <label key={p.id} className="flex items-center gap-2 cursor-pointer" onClick={() => toggle(p.id)}>
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => toggle(p.id)}
+                              className="flex items-center gap-2 text-left w-full"
+                            >
                               <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${checked ? 'border-emerald-500 bg-emerald-500' : 'border-gray-300 bg-white'}`}>
                                 {checked && (
                                   <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24">
@@ -217,37 +198,16 @@ function RoleModal({
                                   </svg>
                                 )}
                               </div>
-                              <span className="text-sm text-gray-700">{p.action}</span>
-                            </label>
+                              <span className="text-sm text-gray-700">{p.label}</span>
+                            </button>
                           );
                         })}
                       </div>
                     </div>
                   );
-                })
-              ) : (
-                // Static groups shown while API permissions are loading
-                Object.entries(STATIC_GROUPS).map(([groupName, actions]) => (
-                  <div key={groupName} className="border border-gray-200 rounded-xl p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="text-sm font-bold text-gray-800">{groupName}</h4>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500">Select All</span>
-                        <Toggle enabled={false} onChange={() => {}} size="sm" />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-y-2.5 gap-x-4">
-                      {actions.map((action) => (
-                        <label key={action} className="flex items-center gap-2 cursor-not-allowed opacity-50">
-                          <div className="w-4 h-4 rounded-full border-2 border-gray-300 bg-white flex-shrink-0" />
-                          <span className="text-sm text-gray-500">{action}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+                })}
+              </div>
+            )}
           </div>
         </div>{/* end scrollable */}
 
@@ -344,8 +304,8 @@ export default function RolesPermissionsPage() {
   const [suspendMap,   setSuspendMap]   = useState<Record<number, boolean>>({});
 
   // Permissions
-  const [allPermissions, setAllPermissions] = useState<Permission[]>([]);
-  const [loadingPerms,   setLoadingPerms]   = useState(false);
+  const [permGroups,   setPermGroups]   = useState<PermissionGroup[]>([]);
+  const [loadingPerms, setLoadingPerms] = useState(false);
 
   // Admin users
   const [admins,        setAdmins]        = useState<AdminUserRecord2[]>([]);
@@ -373,7 +333,7 @@ export default function RolesPermissionsPage() {
     try {
       setLoadingPerms(true);
       const res = await rolesApi2.getPermissions();
-      if (res.status) setAllPermissions(res.data ?? []);
+      if (res.status) setPermGroups(res.data ?? []);
     } catch { /* silent */ } finally {
       setLoadingPerms(false);
     }
@@ -403,7 +363,7 @@ export default function RolesPermissionsPage() {
   }, [isAuthenticated, mainTab]);
 
   useEffect(() => {
-    if (isAuthenticated && roleModal && allPermissions.length === 0) fetchPermissions();
+    if (isAuthenticated && roleModal && permGroups.length === 0) fetchPermissions();
   }, [isAuthenticated, roleModal]);
 
   if (!isAuthenticated) return null;
@@ -436,22 +396,6 @@ export default function RolesPermissionsPage() {
 
   const totalAdmins = roles.reduce((s, r) => s + (r.adminsCount ?? 0), 0);
   const systemRoles = roles.filter((r) => r.isSystem).length;
-
-  const grouped = groupPermissions(allPermissions);
-  // Merge display groups for permissions tab
-  const groupLabel: Record<string, string> = {
-    users: 'User Management', transactions: 'Transactions', wallets: 'Wallet Management',
-    kyc: 'KYC/KYB', kyb: 'KYC/KYB', giftcards: 'Gift Cards',
-    banks: 'Banks & Payouts', payouts: 'Banks & Payouts',
-    compliance: 'Compliance', settings: 'System Settings', roles: 'System Settings', fx: 'FX Engine',
-  };
-  const displayGroups: Record<string, Permission[]> = {};
-  Object.entries(grouped).forEach(([mod, perms]) => {
-    const label = groupLabel[mod] ?? (mod.charAt(0).toUpperCase() + mod.slice(1));
-    displayGroups[label] = [...(displayGroups[label] ?? []), ...perms].filter(
-      (p, i, arr) => arr.findIndex((x) => x.id === p.id) === i
-    );
-  });
 
   const TABS: { id: MainTab; label: string }[] = [
     { id: 'roles',      label: 'Roles' },
@@ -639,39 +583,48 @@ export default function RolesPermissionsPage() {
             <div className="p-8 space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-bold text-emerald-600">All Permissions</h2>
+                  <h2 className="text-xl font-bold" style={{ color: '#009F51' }}>All Permissions</h2>
                   <p className="text-sm text-gray-500 mt-0.5">Complete list of available system permissions</p>
                 </div>
                 <button
                   onClick={() => { setEditingRole(null); setRoleModal(true); }}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors"
+                  className="flex items-center gap-2 px-5 py-2.5 text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
+                  style={{ backgroundColor: '#009F51' }}
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+                    <path d="M19 3v6M16 6h6" strokeWidth={2.5}/>
                   </svg>
                   Create Role
                 </button>
               </div>
 
               {loadingPerms ? (
-                <div className="space-y-6">
-                  {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-48" />)}
+                <div className="space-y-8">
+                  {[...Array(4)].map((_, i) => (
+                    <div key={i} className="space-y-3">
+                      <Skeleton className="h-6 w-40" />
+                      <div className="grid grid-cols-2 gap-3">
+                        {[...Array(4)].map((_, j) => <Skeleton key={j} className="h-28" />)}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ) : Object.keys(displayGroups).length === 0 ? (
-                <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
+              ) : permGroups.length === 0 ? (
+                <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
                   <p className="text-gray-400 text-sm">No permissions found</p>
                 </div>
               ) : (
                 <div className="space-y-8">
-                  {Object.entries(displayGroups).map(([groupName, perms]) => (
-                    <div key={groupName}>
-                      <h3 className="text-base font-bold text-gray-900 mb-4">{groupName}</h3>
+                  {permGroups.map((group) => (
+                    <div key={group.module} className="bg-white rounded-2xl border border-gray-100 p-6">
+                      <h3 className="text-base font-bold mb-5" style={{ color: '#0D3B33' }}>{group.label}</h3>
                       <div className="grid grid-cols-2 gap-3">
-                        {perms.map((p) => (
-                          <div key={p.id} className="bg-white rounded-xl border border-gray-200 px-5 py-4">
-                            <p className="text-sm font-bold text-gray-900 mb-1">{p.action}</p>
-                            <p className="text-xs text-gray-500 mb-2">{(p as any).description ?? ''}</p>
-                            <code className="text-xs text-gray-400 font-mono">{p.module}.{p.action?.toLowerCase().replace(/\s+/g, '_')}</code>
+                        {group.permissions.map((p) => (
+                          <div key={p.id} className="rounded-xl border border-gray-200 px-5 py-4">
+                            <p className="text-sm font-bold text-gray-900 mb-1">{p.label}</p>
+                            <p className="text-xs text-gray-500 mb-3">{p.description}</p>
+                            <code className="text-xs text-gray-400 font-mono">{p.code}</code>
                           </div>
                         ))}
                       </div>
@@ -687,115 +640,135 @@ export default function RolesPermissionsPage() {
             <div className="p-8 space-y-5">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-bold text-emerald-600">Admin Users</h2>
+                  <h2 className="text-xl font-bold" style={{ color: '#009F51' }}>Admin Users</h2>
                   <p className="text-sm text-gray-500 mt-0.5">Manage admin users and their role assignments</p>
                 </div>
                 <button
                   onClick={() => { setEditingRole(null); setRoleModal(true); }}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors"
+                  className="flex items-center gap-2 px-5 py-2.5 text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
+                  style={{ backgroundColor: '#009F51' }}
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+                    <path d="M19 3v6M16 6h6" strokeWidth={2.5}/>
                   </svg>
                   Create Role
                 </button>
               </div>
 
               {/* Search */}
-              <div className="relative">
-                <svg className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                </svg>
-                <input
-                  type="text"
-                  value={adminSearch}
-                  onChange={(e) => handleAdminSearch(e.target.value)}
-                  placeholder="Search by name, wallet ID or transaction ID..."
-                  className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-full text-sm text-gray-700 placeholder-gray-400 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                />
+              <div className="bg-white rounded-2xl border border-gray-100 px-4 py-3">
+                <div className="relative">
+                  <svg className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                  </svg>
+                  <input
+                    type="text"
+                    value={adminSearch}
+                    onChange={(e) => handleAdminSearch(e.target.value)}
+                    placeholder="Search by name, wallet ID or transaction ID..."
+                    className="w-full pl-10 pr-4 py-2 rounded-full text-sm text-gray-700 placeholder-gray-400 bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                  />
+                </div>
               </div>
 
               {/* Admins table */}
-              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+              <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
                 <div className="overflow-x-auto">
-                  <table className="w-full">
+                  <table className="w-full text-sm">
                     <thead>
-                      <tr className="bg-[#F8F9FA]">
-                        {['Admin', 'Role', 'Status', 'Last login', 'Action'].map((h, idx, arr) => (
-                          <th key={h} className={`px-5 py-4 text-left text-xs font-semibold text-gray-500 whitespace-nowrap ${idx === 0 ? 'rounded-tl-xl' : ''} ${idx === arr.length - 1 ? 'rounded-tr-xl' : ''}`}>
+                      <tr className="border-b border-gray-100">
+                        {['Admin', 'Role', 'Status', 'Last login', 'Action'].map(h => (
+                          <th key={h} className="px-6 py-4 text-left text-xs font-medium text-gray-400 whitespace-nowrap">
                             {h}
                           </th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-50">
+                    <tbody>
                       {loadingAdmins ? (
                         [...Array(5)].map((_, i) => (
-                          <tr key={i}>{[...Array(5)].map((_, j) => (
-                            <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>
-                          ))}</tr>
+                          <tr key={i} className="border-b border-gray-50">
+                            {[...Array(5)].map((_, j) => (
+                              <td key={j} className="px-6 py-4"><Skeleton className="h-5 w-full" /></td>
+                            ))}
+                          </tr>
                         ))
                       ) : admins.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="px-5 py-12 text-center text-sm text-gray-400">No admin users found</td>
+                          <td colSpan={5} className="px-6 py-14 text-center text-sm text-gray-400">No admin users found</td>
                         </tr>
                       ) : (
-                        admins.map((admin) => (
-                          <tr key={admin.id} className="hover:bg-gray-50/50 transition-colors">
-                            {/* Admin */}
-                            <td className="px-5 py-4">
-                              <div className="flex items-center gap-3">
-                                <AdminAvatar name={`${admin.firstName ?? ''} ${admin.lastName ?? ''}`} size={9} />
-                                <div>
-                                  <p className="text-sm font-semibold text-gray-900">{admin.firstName} {admin.lastName}</p>
-                                  <p className="text-xs text-gray-400">{admin.email}</p>
+                        admins.map((admin, idx) => {
+                          const displayName = adminDisplayName(admin);
+                          const initials = displayName.split(/[\s.]+/).map(n => n[0]).filter(Boolean).join('').slice(0, 2).toUpperCase();
+                          const GRAD_COLORS = [
+                            'from-emerald-400 to-teal-600',
+                            'from-violet-400 to-purple-600',
+                            'from-blue-400 to-indigo-600',
+                            'from-amber-400 to-orange-600',
+                            'from-rose-400 to-pink-600',
+                          ];
+                          const grad = GRAD_COLORS[admin.id % GRAD_COLORS.length];
+                          const loginDate = admin.lastLoginAt ? new Date(admin.lastLoginAt) : null;
+                          const loginFormatted = loginDate
+                            ? `${loginDate.getFullYear()}-${String(loginDate.getMonth() + 1).padStart(2, '0')}-${String(loginDate.getDate()).padStart(2, '0')} ${loginDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase()}`
+                            : null;
+
+                          return (
+                            <tr key={admin.id} className={`hover:bg-gray-50/60 transition-colors ${idx < admins.length - 1 ? 'border-b border-gray-100' : ''}`}>
+                              {/* Admin */}
+                              <td className="px-6 py-4">
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
+                                    {initials || 'A'}
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-semibold text-gray-900 leading-tight">{displayName}</p>
+                                    <p className="text-xs text-gray-400 mt-0.5">{admin.email}</p>
+                                  </div>
                                 </div>
-                              </div>
-                            </td>
-                            {/* Role */}
-                            <td className="px-5 py-4">
-                              {admin.role ? (
-                                <span className="inline-flex px-3 py-1 rounded-full text-xs font-semibold border border-gray-300 text-gray-700">
-                                  {admin.role.name}
+                              </td>
+                              {/* Role */}
+                              <td className="px-6 py-4">
+                                {admin.role ? (
+                                  <span className="inline-flex px-3 py-1 rounded-full text-xs font-semibold border whitespace-nowrap" style={{ borderColor: '#009F51', color: '#009F51' }}>
+                                    {admin.role.name}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-gray-400">No role</span>
+                                )}
+                              </td>
+                              {/* Status */}
+                              <td className="px-6 py-4">
+                                <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold border whitespace-nowrap ${admin.isActive ? 'border-emerald-400 text-emerald-600' : 'border-gray-300 text-gray-500'}`}>
+                                  {admin.isActive ? 'Active' : 'Inactive'}
                                 </span>
-                              ) : (
-                                <span className="text-xs text-gray-400">No role</span>
-                              )}
-                            </td>
-                            {/* Status */}
-                            <td className="px-5 py-4">
-                              <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold border ${
-                                admin.isActive
-                                  ? 'border-emerald-300 text-emerald-600'
-                                  : 'border-gray-300 text-gray-500'
-                              }`}>
-                                {admin.isActive ? 'Active' : 'Inactive'}
-                              </span>
-                            </td>
-                            {/* Last login */}
-                            <td className="px-5 py-4">
-                              {admin.lastLoginAt ? (
-                                <>
-                                  <p className="text-xs text-gray-700">
-                                    {new Date(admin.lastLoginAt).toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                                  </p>
-                                  <p className="text-xs text-gray-400">2 mins ago</p>
-                                </>
-                              ) : (
-                                <p className="text-xs text-gray-400">Never</p>
-                              )}
-                            </td>
-                            {/* Action */}
-                            <td className="px-5 py-4">
-                              <button
-                                onClick={() => setAssignModal(admin)}
-                                className="text-sm font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
-                              >
-                                Edit Role
-                              </button>
-                            </td>
-                          </tr>
-                        ))
+                              </td>
+                              {/* Last login */}
+                              <td className="px-6 py-4">
+                                {loginFormatted ? (
+                                  <>
+                                    <p className="text-sm text-gray-800 leading-tight">{loginFormatted}</p>
+                                    <p className="text-xs text-gray-400 mt-0.5">{timeAgo(admin.lastLoginAt!)}</p>
+                                  </>
+                                ) : (
+                                  <p className="text-xs text-gray-400">Never</p>
+                                )}
+                              </td>
+                              {/* Action */}
+                              <td className="px-6 py-4">
+                                <button
+                                  onClick={() => setAssignModal(admin)}
+                                  className="text-sm font-semibold hover:opacity-80 transition-opacity whitespace-nowrap"
+                                  style={{ color: '#009F51' }}
+                                >
+                                  Edit Role
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -810,7 +783,7 @@ export default function RolesPermissionsPage() {
       {roleModal && (
         <RoleModal
           existing={editingRole}
-          allPermissions={allPermissions}
+          permGroups={permGroups}
           onClose={() => { setRoleModal(false); setEditingRole(null); }}
           onSaved={handleRoleSaved}
         />

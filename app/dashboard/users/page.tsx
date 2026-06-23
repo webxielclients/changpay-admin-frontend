@@ -44,6 +44,9 @@ function formatLoginDate(dateStr: string | null | undefined): string {
 /* ── Avatar ── */
 const COLORS = ['from-teal-400 to-teal-600','from-blue-400 to-blue-600','from-purple-400 to-purple-600','from-orange-400 to-orange-600','from-rose-400 to-rose-600','from-emerald-400 to-emerald-600'];
 function Avatar({ user }: { user: AdminUserRecord }) {
+  if (user.avatarUrl) {
+    return <img src={user.avatarUrl} alt={user.firstName ?? user.email} className="w-8 h-8 rounded-full object-cover shrink-0" />;
+  }
   return (
     <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${COLORS[user.id % COLORS.length]} flex items-center justify-center text-white text-[11px] font-bold shrink-0`}>
       {getInitials(user.firstName ?? user.first_name, user.lastName ?? user.last_name, user.email)}
@@ -134,6 +137,30 @@ function Pagination({ current, total, onChange }: { current: number; total: numb
   );
 }
 
+/* ── CSV export ── */
+function exportUsersCSV(users: AdminUserRecord[]) {
+  const headers = ['Name','Email','Changpay ID','Status','KYC','KYB','Email Verified','USD Balance','NGN Balance','YUAN Balance','Joined','Last Login'];
+  const rows = users.map(u => [
+    [u.firstName ?? u.first_name, u.lastName ?? u.last_name].filter(Boolean).join(' ') || u.email,
+    u.email,
+    u.changpayId ?? '',
+    (u.isActive ?? u.is_active) ? 'Active' : 'Frozen',
+    u.kycStatus ?? u.kyc_status ?? '',
+    u.kybStatus ?? '',
+    u.emailVerified ? 'Yes' : 'No',
+    u.balances?.USD ?? '',
+    u.balances?.NGN ?? '',
+    u.balances?.YAN ?? '',
+    u.createdAt ?? u.created_at ?? '',
+    u.lastLoginAt ?? '',
+  ]);
+  const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `users-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  URL.revokeObjectURL(url);
+}
+
 /* ── Page ── */
 export default function UsersPage() {
   const router = useRouter();
@@ -144,27 +171,34 @@ export default function UsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [kycFilter, setKycFilter] = useState('');
   const [togglingId, setTogglingId] = useState<number | null>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const fetchUsers = useCallback(async (page: number, q: string) => {
+  const fetchUsers = useCallback(async (page: number, q: string, status: string, kyc: string) => {
     try {
       setIsLoading(true); setError(null);
-      const params: Record<string, string | number | boolean> = { page, per_page: 10 };
+      const params: Parameters<typeof usersApi.getUsers>[0] = { page, per_page: 10 };
       if (q) params.search = q;
-      const res = await usersApi.getUsers(params as Parameters<typeof usersApi.getUsers>[0]);
+      if (status) params.is_active = status === 'active';
+      if (kyc) params.kyc_status = kyc;
+      const res = await usersApi.getUsers(params);
       if (res.status && res.data) { setUsers(res.data.data ?? []); setPagination(res.data); }
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); }
     finally { setIsLoading(false); }
   }, []);
 
-  useEffect(() => { fetchUsers(currentPage, search); }, [currentPage]);
+  useEffect(() => { fetchUsers(currentPage, search, statusFilter, kycFilter); }, [currentPage, statusFilter, kycFilter]);
 
   const handleSearch = (val: string) => {
     setSearch(val);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    searchTimeout.current = setTimeout(() => { setCurrentPage(1); fetchUsers(1, val); }, 400);
+    searchTimeout.current = setTimeout(() => { setCurrentPage(1); fetchUsers(1, val, statusFilter, kycFilter); }, 400);
   };
+
+  const handleStatusFilter = (val: string) => { setStatusFilter(val); setCurrentPage(1); };
+  const handleKycFilter = (val: string) => { setKycFilter(val); setCurrentPage(1); };
 
   const handleToggle = async (user: AdminUserRecord) => {
     try {
@@ -196,12 +230,34 @@ export default function UsersPage() {
         <div className="flex-1 overflow-y-auto px-8 py-5 space-y-5 bg-white">
           {error && <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">{error}</div>}
 
-          {/* Search */}
-          <div className="relative max-w-lg">
-            <svg className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            <input type="text" value={search} onChange={e => handleSearch(e.target.value)}
-              placeholder="Search by name, email or Changpay ID..."
-              className="w-full pl-10 pr-4 py-2.5 text-sm bg-[#F8F9FA] border border-gray-200 rounded-full text-gray-700 placeholder-gray-400 focus:outline-none focus:border-gray-400 shadow-sm"/>
+          {/* Filters row */}
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1 max-w-lg">
+              <svg className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <input type="text" value={search} onChange={e => handleSearch(e.target.value)}
+                placeholder="Search by name, email or Changpay ID..."
+                className="w-full pl-10 pr-4 py-2.5 text-sm bg-[#F8F9FA] border border-gray-200 rounded-full text-gray-700 placeholder-gray-400 focus:outline-none focus:border-gray-400 shadow-sm"/>
+            </div>
+            <select value={statusFilter} onChange={e => handleStatusFilter(e.target.value)}
+              className="px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 shrink-0">
+              <option value="">All Status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Frozen</option>
+            </select>
+            <select value={kycFilter} onChange={e => handleKycFilter(e.target.value)}
+              className="px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 shrink-0">
+              <option value="">All KYC</option>
+              <option value="approved">Approved</option>
+              <option value="pending">Pending</option>
+              <option value="rejected">Rejected</option>
+              <option value="not_started">Not Started</option>
+            </select>
+            <button onClick={() => exportUsersCSV(users)}
+              className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-white rounded-xl shrink-0"
+              style={{ backgroundColor: '#009F51' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Export
+            </button>
           </div>
 
           {/* Stat cards — match Figma exactly */}
