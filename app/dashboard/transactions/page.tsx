@@ -75,11 +75,19 @@ function RiskBadge({ risk }: { risk?: string }) {
 
 /* ── AVATAR ── */
 const AV = ['from-teal-400 to-teal-600','from-blue-400 to-blue-600','from-purple-400 to-purple-600','from-orange-400 to-orange-600','from-rose-400 to-rose-600','from-emerald-400 to-emerald-600'];
-function Avatar({ name, uid }: { name: string; uid: number | string }) {
+function Avatar({ name, uid, avatarUrl }: { name: string; uid: number | string; avatarUrl?: string | null }) {
   const idx = typeof uid === 'number' ? uid : (parseInt(String(uid)) || 0);
+  const initials = (name ?? '??').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase() || '??';
+  if (avatarUrl) {
+    return (
+      <div className="w-8 h-8 rounded-full overflow-hidden shrink-0">
+        <img src={avatarUrl} alt={name} className="w-full h-full object-cover" />
+      </div>
+    );
+  }
   return (
     <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${AV[idx % AV.length]} flex items-center justify-center text-white text-[11px] font-bold shrink-0`}>
-      {(name ?? '??').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase() || '??'}
+      {initials}
     </div>
   );
 }
@@ -849,7 +857,7 @@ export default function TransactionsPage() {
                             <td className="px-4 py-3.5 pl-6 font-mono text-xs text-gray-700 whitespace-nowrap">{String(tx.reference ?? tx.id).slice(0,9)}</td>
                             <td className="px-4 py-3.5 whitespace-nowrap">
                               <div className="flex items-center gap-2.5">
-                                <Avatar name={name} uid={tx.id}/>
+                                <Avatar name={name} uid={tx.id} avatarUrl={u.avatarUrl ?? u.avatar_url}/>
                                 <div><p className="text-sm font-semibold text-gray-900 leading-tight">{name}</p><p className="text-[11px] text-gray-400">{u.changpayId ?? u.changpay_id ?? ''}</p></div>
                               </div>
                             </td>
@@ -1083,7 +1091,7 @@ export default function TransactionsPage() {
                         <td className="px-4 py-3.5 pl-6 font-mono text-xs text-gray-700 whitespace-nowrap">{String(tx.reference ?? tx.id).slice(0,9)}</td>
                         <td className="px-4 py-3.5 whitespace-nowrap">
                           <div className="flex items-center gap-2.5">
-                            <Avatar name={name} uid={tx.id}/>
+                            <Avatar name={name} uid={tx.id} avatarUrl={u.avatarUrl ?? u.avatar_url}/>
                             <div><p className="text-sm font-semibold text-gray-900 leading-tight">{name}</p><p className="text-[11px] text-gray-400">{u.changpayId ?? u.changpay_id ?? ''}</p></div>
                           </div>
                         </td>

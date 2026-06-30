@@ -556,9 +556,15 @@ export default function DashboardHome() {
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap">
                           <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-teal-400 to-emerald-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                              {(tx.client.name?.[0] ?? 'U').toUpperCase()}
-                            </div>
+                            {tx.client.avatar ? (
+                              <div className="w-8 h-8 rounded-full overflow-hidden shrink-0">
+                                <img src={tx.client.avatar} alt={tx.client.name ?? ''} className="w-full h-full object-cover" />
+                              </div>
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-teal-400 to-emerald-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                                {(tx.client.name?.[0] ?? 'U').toUpperCase()}
+                              </div>
+                            )}
                             <div>
                               <p className="text-sm font-medium leading-tight" style={{ color: '#1A1D1F' }}>{tx.client.name || '—'}</p>
                               <p className="text-[11px] text-gray-400">{tx.client.changpayId ?? ''}</p>
