@@ -244,6 +244,24 @@ function DetailPanel({ txId, product, onClose }: PanelProps) {
     finally { setActing(false); }
   };
 
+  const handleMarkManualReview = async () => {
+    try { setActing(true); await transactionsApi.markManualReview(txId); onClose(); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Failed to mark for manual review'); }
+    finally { setActing(false); }
+  };
+
+  const handleDownloadReceipt = async () => {
+    try {
+      setActing(true);
+      const blob = await transactionsApi.downloadReceipt(txId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `receipt-${data?.reference ?? txId}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Failed to download receipt'); }
+    finally { setActing(false); }
+  };
+
   /* computed values */
   const isSuccess = ['completed','success','paid'].includes((data?.status ?? '').toLowerCase());
   const user = data?.user ?? {};
@@ -502,14 +520,15 @@ function DetailPanel({ txId, product, onClose }: PanelProps) {
                 style={{ borderColor: '#FF756B' }}>
                 {acting ? 'Processing…' : 'Mark as failed'}
               </button>
-              <button disabled={acting}
+              <button onClick={handleMarkManualReview} disabled={acting}
                 className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50">
-                Mark as Manual Review
+                {acting ? 'Processing…' : 'Mark as Manual Review'}
               </button>
             </div>
-            <button className="w-full py-2.5 rounded-xl text-sm font-semibold text-white transition-colors"
+            <button onClick={handleDownloadReceipt} disabled={acting}
+              className="w-full py-2.5 rounded-xl text-sm font-semibold text-white transition-colors disabled:opacity-50"
               style={{ backgroundColor: '#009F51' }}>
-              Download Receipt
+              {acting ? 'Processing…' : 'Download Receipt'}
             </button>
           </div>
         )}
@@ -665,7 +684,7 @@ export default function TransactionsPage() {
     try {
       setLoadingAll(true); setError(null);
       const r = await transactionsApi.getAll({ page: pg, per_page: 15, search: q || undefined, status: status || undefined, date_from: dateFrom || undefined, date_to: dateTo || undefined });
-      if (r.status && r.data) { const d = r.data as any; setAllTxs(d.data ?? []); setAllPag(d); }
+      if (r.status && r.data) { const d = r.data as any; setAllTxs(d.data ?? []); setAllPag(d.meta ?? d); }
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); }
     finally { setLoadingAll(false); }
   }, []);
@@ -679,7 +698,7 @@ export default function TransactionsPage() {
     try {
       setLoadingCrypto(true); setError(null);
       const r = await transactionsApi.getSellCrypto({ page: pg, per_page: 15, search: q || undefined, status: status || undefined });
-      if (r.status && r.data) { const d = r.data as any; setCryptoTxs(d.data ?? []); setCryptoPag(d); }
+      if (r.status && r.data) { const d = r.data as any; setCryptoTxs(d.data ?? []); setCryptoPag(d.meta ?? d); }
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); }
     finally { setLoadingCrypto(false); }
   }, []);
@@ -693,7 +712,7 @@ export default function TransactionsPage() {
     try {
       setLoadingChina(true); setError(null);
       const r = await transactionsApi.getPayToChina({ page: pg, per_page: 15, search: q || undefined, status: status || undefined });
-      if (r.status && r.data) { const d = r.data as any; setChinaTxs(d.data ?? []); setChinaPag(d); }
+      if (r.status && r.data) { const d = r.data as any; setChinaTxs(d.data ?? []); setChinaPag(d.meta ?? d); }
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); }
     finally { setLoadingChina(false); }
   }, []);
@@ -707,7 +726,7 @@ export default function TransactionsPage() {
     try {
       setLoadingConv(true); setError(null);
       const r = await transactionsApi.getConversions({ page: pg, per_page: 15, search: q || undefined, status: status || undefined, date_from: dateFrom || undefined, date_to: dateTo || undefined });
-      if (r.status && r.data) { const d = r.data as any; setConvTxs(d.data ?? []); setConvPag(d); }
+      if (r.status && r.data) { const d = r.data as any; setConvTxs(d.data ?? []); setConvPag(d.meta ?? d); }
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); }
     finally { setLoadingConv(false); }
   }, []);
@@ -922,8 +941,8 @@ export default function TransactionsPage() {
                             </td>
                             <td className="px-4 py-3.5 whitespace-nowrap"><StatusBadge status={tx.status}/></td>
                             <td className="px-4 py-3.5 whitespace-nowrap">
-                              <p className="text-xs text-gray-700">{(tx as any).payoutMethod ?? '—'}</p>
-                              {(tx as any).payoutAccount && <p className="text-[10px] text-gray-400">{(tx as any).payoutAccount}</p>}
+                              <p className="text-xs text-gray-700 capitalize">{tx.destinationType ?? '—'}</p>
+                              {tx.targetAmount && <p className="text-[10px] text-gray-400">{tx.targetAmount} {tx.targetCurrency ?? ''}</p>}
                             </td>
                             <td className="px-4 py-3.5 pr-6 whitespace-nowrap">
                               <button onClick={() => setPanel({ id: tx.id, product: 'crypto' })} className="text-sm font-semibold" style={{ color: '#339D88' }}>View</button>
