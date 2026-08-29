@@ -1599,7 +1599,7 @@ export const transactionsApi = {
       .filter(([, v]) => v != null && v !== '')
       .map(([k, v]) => [k, String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
-    return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<Transaction> | null }>(
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<Transaction> | null }>(
       `/transactions${query}`
     );
   },
@@ -1630,6 +1630,23 @@ export const transactionsApi = {
       { method: 'POST' }
     ),
 
+  markManualReview: (id: number) =>
+    authedRequest<{ status: boolean; message: string; data: Transaction }>(
+      `/transactions/${id}/manual-review`,
+      { method: 'POST' }
+    ),
+
+  downloadReceipt: async (id: number) => {
+    const storeToken = useAuthStore.getState().token;
+    const localToken = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const token = storeToken ?? localToken;
+    const res = await fetch(`${BASE_URL}/transactions/${id}/receipt`, {
+      headers: { Accept: 'application/pdf', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!res.ok) throw new Error(`Failed to download receipt (${res.status})`);
+    return res.blob();
+  },
+
   // ── Sell Crypto ──
 
   /** GET /sell-crypto */
@@ -1645,7 +1662,7 @@ export const transactionsApi = {
       .filter(([, v]) => v != null && v !== '')
       .map(([k, v]) => [k, String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
-    return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<SellCryptoTransaction> | null }>(
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<SellCryptoTransaction> | null }>(
       `/sell-crypto${query}`
     );
   },
@@ -1677,7 +1694,7 @@ export const transactionsApi = {
       .filter(([, v]) => v != null && v !== '')
       .map(([k, v]) => [k, String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
-    return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<PayToChinaTransaction> | null }>(
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<PayToChinaTransaction> | null }>(
       `/pay-to-china${query}`
     );
   },
@@ -1709,7 +1726,7 @@ export const transactionsApi = {
       .filter(([, v]) => v != null && v !== '')
       .map(([k, v]) => [k, String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
-    return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<Transaction> | null }>(
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<Transaction> | null }>(
       `/conversions${query}`
     );
   },
