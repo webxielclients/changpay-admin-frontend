@@ -1,11 +1,16 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+import Image from 'next/image';
 import { useAuthStore } from '@/store/authStore';
 import { supportApi } from '@/lib/api/client';
 import type { SupportTicket, TicketStats, Dispute, DisputeStats } from '@/lib/api/client';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
+
+const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif" };
+const INTER_TIGHT = { fontFamily: "'Inter Tight', -apple-system, BlinkMacSystemFont, system-ui, sans-serif" };
 
 type TabType = 'support-tickets' | 'disputes';
 
@@ -14,11 +19,16 @@ function Skeleton({ className }: { className?: string }) {
   return <div className={`animate-pulse bg-gray-100 rounded-lg ${className ?? ''}`} />;
 }
 
+function toTitleCase(name: string) {
+  return name.toLowerCase().replace(/(^|\s|-)\S/g, (c) => c.toUpperCase());
+}
+
 function formatDate(s: string | null | undefined) {
   if (!s) return '—';
   try {
     const d = new Date(s);
-    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ', ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase();
+    const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase().replace(' ', '');
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ', ' + time;
   } catch { return s; }
 }
 
@@ -36,13 +46,17 @@ function downloadCSV(filename: string, headers: string[], rows: string[][]) {
 // ─── Priority badge — outline pill ────────────────────────────────────────────
 function PriorityBadge({ priority }: { priority: string }) {
   const p = priority?.toLowerCase();
-  const styles: Record<string, string> = {
-    high:   'border-red-300    text-red-500',
-    medium: 'border-amber-300  text-amber-600',
-    low:    'border-gray-300   text-gray-500',
+  const map: Record<string, { bg: string; color: string }> = {
+    high:   { bg: '#FF756B1A', color: '#FF756B' },
+    medium: { bg: '#FFD37933', color: '#FFD379' },
+    low:    { bg: '#F8F9FA',   color: '#A8B0B5' },
   };
+  const style = map[p] ?? { bg: '#F8F9FA', color: '#A8B0B5' };
   return (
-    <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold border ${styles[p] ?? 'border-gray-300 text-gray-500'} capitalize`}>
+    <span
+      className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold border capitalize"
+      style={{ backgroundColor: style.bg, borderColor: style.color, color: style.color }}
+    >
       {priority}
     </span>
   );
@@ -51,22 +65,26 @@ function PriorityBadge({ priority }: { priority: string }) {
 // ─── Status badge — outline pill ──────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
   const s = status?.toLowerCase();
-  const styles: Record<string, string> = {
-    open:         'border-blue-300    text-blue-600',
-    in_progress:  'border-orange-300  text-orange-600',
-    pending:      'border-amber-300   text-amber-600',
-    resolved:     'border-emerald-300 text-emerald-600',
-    closed:       'border-gray-300    text-gray-500',
-    under_review: 'border-purple-300  text-purple-600',
-    rejected:     'border-red-300     text-red-500',
+  const map: Record<string, { bg: string; color: string }> = {
+    open:         { bg: '#0274D81A', color: '#0274D8' },
+    in_progress:  { bg: '#FFD37933', color: '#FFD379' },
+    pending:      { bg: '#FFFCED',   color: '#FFDA44' },
+    resolved:     { bg: '#E1F7EB',   color: '#009F51' },
+    closed:       { bg: '#F8F9FA',   color: '#A8B0B5' },
+    under_review: { bg: '#F3E8FF',   color: '#9810FA' },
+    rejected:     { bg: '#FF756B1A', color: '#FF756B' },
   };
   const labels: Record<string, string> = {
     in_progress: 'In Progress', under_review: 'Under Review',
     open: 'Open', resolved: 'Resolved', pending: 'Pending',
     closed: 'Closed', rejected: 'Rejected',
   };
+  const style = map[s] ?? { bg: '#F8F9FA', color: '#A8B0B5' };
   return (
-    <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold border ${styles[s] ?? 'border-gray-300 text-gray-500'}`}>
+    <span
+      className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold border"
+      style={{ backgroundColor: style.bg, borderColor: style.color, color: style.color }}
+    >
       {labels[s] ?? status}
     </span>
   );
@@ -75,6 +93,7 @@ function StatusBadge({ status }: { status: string }) {
 // ─── User cell ─────────────────────────────────────────────────────────────────
 function ClientCell({ name, userId }: { name?: string; userId?: string }) {
   const nameStr = typeof name === 'string' ? name : '—';
+  const titleCased = nameStr === '—' ? nameStr : toTitleCase(nameStr);
   const COLORS = ['bg-emerald-600', 'bg-blue-600', 'bg-violet-600', 'bg-amber-600', 'bg-rose-600'];
   const color  = COLORS[nameStr.charCodeAt(0) % COLORS.length];
   const initials = nameStr.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
@@ -84,7 +103,12 @@ function ClientCell({ name, userId }: { name?: string; userId?: string }) {
         {initials || 'U'}
       </div>
       <div className="min-w-0">
-        <p className="text-sm font-medium text-gray-900 truncate">{nameStr}</p>
+        <p
+          className="truncate"
+          style={{ fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif", fontWeight: 500, fontSize: 14.67, lineHeight: '150%', letterSpacing: '2%', color: '#1A1D1F' }}
+        >
+          {titleCased}
+        </p>
         {userId && <p className="text-xs text-gray-400 truncate">{userId}</p>}
       </div>
     </div>
@@ -95,9 +119,15 @@ function ClientCell({ name, userId }: { name?: string; userId?: string }) {
 function TableHead({ cols }: { cols: string[] }) {
   return (
     <thead>
-      <tr className="border-b border-gray-100">
+      <tr style={{ backgroundColor: '#F8F9FA' }}>
         {cols.map((h) => (
-          <th key={h} className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>
+          <th
+            key={h}
+            className="pl-5 py-3.5 text-left whitespace-nowrap"
+            style={{ fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif", fontWeight: 400, fontSize: 14, lineHeight: '150%', letterSpacing: '2%', color: '#6A7377', paddingRight: '9.43px' }}
+          >
+            {h}
+          </th>
         ))}
       </tr>
     </thead>
@@ -107,14 +137,15 @@ function TableHead({ cols }: { cols: string[] }) {
 // ─── Search bar ───────────────────────────────────────────────────────────────
 function SearchBar({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
-    <div className="relative flex-1 max-w-sm">
+    <div className="relative flex-1">
       <svg className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
       </svg>
       <input
         type="text" value={value} onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder ?? 'Search...'}
-        className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-full text-sm text-gray-700 placeholder-gray-400 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+        className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-full text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#009F51]"
+        style={{ backgroundColor: '#F8F9FA' }}
       />
     </div>
   );
@@ -126,7 +157,8 @@ function FilterSelect({ value, onChange, options }: { value: string; onChange: (
     <div className="relative flex-shrink-0">
       <select
         value={value} onChange={(e) => onChange(e.target.value)}
-        className="appearance-none bg-white border border-gray-200 rounded-full pl-4 pr-8 py-2.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
+        className="appearance-none border border-gray-200 rounded-full pl-4 pr-8 py-2.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-[#009F51] cursor-pointer"
+        style={{ backgroundColor: '#F8F9FA' }}
       >
         {options.map(([val, label]) => <option key={val} value={val}>{label}</option>)}
       </select>
@@ -150,20 +182,21 @@ function Pagination({ current, total, onChange, from, to, count }: {
   });
   return (
     <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between">
-      <p className="text-xs text-gray-500">{count != null ? `Showing ${from ?? 1}–${to ?? 0} of ${count.toLocaleString()}` : ''}</p>
+      <p className="text-sm text-gray-500">{count != null ? `Showing ${from ?? 1} to ${to ?? 0} of ${count.toLocaleString()} results` : ''}</p>
       <div className="flex items-center gap-1">
         <button onClick={() => onChange(Math.max(1, current - 1))} disabled={current === 1}
-          className="w-7 h-7 flex items-center justify-center border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40">
+          className="w-8 h-8 flex items-center justify-center border border-gray-200 rounded-full hover:bg-gray-50 disabled:opacity-40">
           <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
         </button>
         {pages.map((p) => (
           <button key={p} onClick={() => onChange(p)}
-            className={`w-7 h-7 flex items-center justify-center rounded-lg text-xs font-medium transition-colors ${current === p ? 'bg-emerald-500 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-sm font-medium transition-colors"
+            style={current === p ? { backgroundColor: '#009F51', color: '#ffffff' } : { border: '1px solid #E5E7EB', color: '#4B5563' }}>
             {p}
           </button>
         ))}
         <button onClick={() => onChange(Math.min(total, current + 1))} disabled={current === total}
-          className="w-7 h-7 flex items-center justify-center border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40">
+          className="w-8 h-8 flex items-center justify-center border border-gray-200 rounded-full hover:bg-gray-50 disabled:opacity-40">
           <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
         </button>
       </div>
@@ -274,7 +307,7 @@ function TicketPanel({ ticket, onClose, onUpdated }: {
               {/* Subject */}
               <div>
                 <p className="text-sm font-bold text-gray-900 mb-1.5">Subject</p>
-                <p className="text-sm font-semibold text-emerald-600">{t.subject}</p>
+                <p className="text-sm font-semibold" style={{ color: '#009F51' }}>{t.subject}</p>
               </div>
 
               {/* Description */}
@@ -483,9 +516,10 @@ function DisputePanel({ dispute, onClose, onResolved }: {
 // ═════════════════════════════════════════════════════════════════════════════
 //  PAGE
 // ═════════════════════════════════════════════════════════════════════════════
-export default function SupportDisputesPage() {
+function SupportDisputesPageInner() {
   const { isAuthenticated } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<TabType>('support-tickets');
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<TabType>(() => (searchParams.get('tab') as TabType) || 'support-tickets');
 
   // Tickets
   const [tickets,            setTickets]            = useState<SupportTicket[]>([]);
@@ -586,7 +620,7 @@ export default function SupportDisputesPage() {
   ];
 
   return (
-    <div className="flex h-screen bg-[#F8F9FA] font-['DM_Sans',sans-serif]">
+    <div className="flex h-screen bg-white" style={FONT}>
       <Sidebar />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -603,12 +637,11 @@ export default function SupportDisputesPage() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`relative flex-1 py-4 text-sm font-medium text-center transition-colors ${
-                  activeTab === tab.id ? 'text-emerald-600' : 'text-gray-500 hover:text-gray-700'
-                }`}
+                className="relative flex-1 py-4 text-sm font-medium text-center transition-colors"
+                style={{ color: activeTab === tab.id ? '#009F51' : '#6B7280' }}
               >
                 {tab.label}
-                {activeTab === tab.id && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500" />}
+                {activeTab === tab.id && <span className="absolute bottom-0 left-0 right-0 h-0.5" style={{ backgroundColor: '#009F51' }} />}
               </button>
             ))}
           </nav>
@@ -626,7 +659,7 @@ export default function SupportDisputesPage() {
             <div className="p-8 space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-bold text-emerald-600">Support Tickets</h2>
+                  <h2 className="text-lg font-bold" style={{ color: '#009F51' }}>Support Tickets</h2>
                   <p className="text-sm text-gray-500 mt-0.5">Create and manage support tickets with priority levels and assignments</p>
                 </div>
                 <button
@@ -643,11 +676,10 @@ export default function SupportDisputesPage() {
                       t.createdAt ?? '',
                     ])
                   )}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors"
+                  className="flex items-center justify-center transition-colors"
+                  style={{ width: 126, height: 48, gap: 8, borderRadius: 100, padding: '12px 20px', backgroundColor: '#009F51', color: '#ffffff', fontFamily: 'Geist, sans-serif', fontWeight: 400, fontSize: 18, lineHeight: '150%', letterSpacing: '0%' }}
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
-                  </svg>
+                  <Image src="/exportIcon.png" alt="" width={15} height={15} />
                   Export
                 </button>
               </div>
@@ -655,15 +687,15 @@ export default function SupportDisputesPage() {
               {/* Stat cards */}
               <div className="grid grid-cols-4 gap-4">
                 {([
-                  { label: 'Total Tickets',   value: ticketStats?.total,       color: 'text-gray-900' },
-                  { label: 'Open Tickets',    value: ticketStats?.open,        color: 'text-blue-600' },
-                  { label: 'Resolved Today',  value: ticketStats?.resolved,    color: 'text-emerald-600' },
-                  { label: 'Pending Review',  value: ticketStats?.in_progress, color: 'text-purple-600' },
+                  { label: 'Total Tickets',   value: ticketStats?.total,       color: '#1A1D1F' },
+                  { label: 'Open Tickets',    value: ticketStats?.open,        color: '#0274D8' },
+                  { label: 'Resolved Today',  value: ticketStats?.resolved,    color: '#009F51' },
+                  { label: 'Pending Review',  value: ticketStats?.in_progress, color: '#9810FA' },
                 ] as { label: string; value?: number; color: string }[]).map((s) => (
-                  <div key={s.label} className="bg-white rounded-2xl border border-gray-200 p-5">
+                  <div key={s.label} className="rounded-xl p-5" style={{ backgroundColor: '#F8F9FA' }}>
                     <p className="text-xs text-gray-500 mb-2">{s.label}</p>
                     {loadingTicketStats ? <Skeleton className="h-9 w-16" /> : (
-                      <p className={`text-3xl font-bold ${s.color}`}>{s.value ?? '—'}</p>
+                      <p className="text-3xl font-bold" style={{ color: s.color }}>{s.value ?? '—'}</p>
                     )}
                   </div>
                 ))}
@@ -678,29 +710,29 @@ export default function SupportDisputesPage() {
               </div>
 
               {/* Table */}
-              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <TableHead cols={['Txn ID', 'Client Name', 'Subject', 'Type', 'Priority', 'Status', 'Date/time', 'Actions']} />
-                    <tbody className="divide-y divide-gray-50">
+                    <tbody>
                       {loadingTickets ? (
                         [...Array(6)].map((_, i) => (
-                          <tr key={i}>{[...Array(8)].map((_, j) => <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                          <tr key={i} style={{ borderBottom: '1.05px solid #DFE1E7' }}>{[...Array(8)].map((_, j) => <td key={j} className="pl-5 py-5" style={{ paddingRight: '9.43px' }}><Skeleton className="h-5 w-full" /></td>)}</tr>
                         ))
                       ) : tickets.length === 0 ? (
                         <tr><td colSpan={8} className="px-5 py-12 text-center text-sm text-gray-400">No tickets found</td></tr>
                       ) : (
                         tickets.map((t) => (
-                          <tr key={t.id} className="hover:bg-gray-50/50 transition-colors">
-                            <td className="px-5 py-4 text-xs font-mono text-gray-600">{(t as any).reference ?? `TX-${t.id}`}</td>
-                            <td className="px-5 py-4"><ClientCell name={t.user ? `${t.user.firstName ?? ''} ${t.user.lastName ?? ''}`.trim() || t.user.email : '—'} userId={t.user?.changpayId ?? t.user?.email ?? undefined} /></td>
-                            <td className="px-5 py-4 text-sm text-gray-700 max-w-[180px] truncate">{t.subject}</td>
-                            <td className="px-5 py-4 text-sm text-gray-600 capitalize">{t.category ?? '—'}</td>
-                            <td className="px-5 py-4"><PriorityBadge priority={t.priority} /></td>
-                            <td className="px-5 py-4"><StatusBadge status={t.status} /></td>
-                            <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{formatDate(t.createdAt)}</td>
-                            <td className="px-5 py-4">
-                              <button onClick={() => setSelectedTicket(t)} className="text-sm font-semibold text-emerald-600 hover:text-emerald-700">View</button>
+                          <tr key={t.id} className="hover:bg-gray-50/50 transition-colors" style={{ borderBottom: '1.05px solid #DFE1E7' }}>
+                            <td className="pl-5 py-5" style={{ paddingRight: '9.43px', fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif", fontWeight: 600, fontSize: 14, lineHeight: '150%', letterSpacing: '2%', color: '#1A1D1F' }}>{(t as any).reference ?? `TX-${t.id}`}</td>
+                            <td className="pl-5 py-5" style={{ paddingRight: '9.43px' }}><ClientCell name={t.user ? `${t.user.firstName ?? ''} ${t.user.lastName ?? ''}`.trim() || t.user.email : '—'} userId={t.user?.changpayId ?? t.user?.email ?? undefined} /></td>
+                            <td className="pl-5 py-5 max-w-[180px] truncate" style={{ paddingRight: '9.43px', fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif", fontWeight: 500, fontSize: 14, lineHeight: '120%', letterSpacing: '2%', color: '#1A1D1F' }}>{t.subject}</td>
+                            <td className="pl-5 py-5 capitalize" style={{ paddingRight: '9.43px', ...INTER_TIGHT, fontWeight: 500, fontSize: 14.67, lineHeight: '150%', letterSpacing: '2%', color: '#1A1D1F' }}>{t.category ?? '—'}</td>
+                            <td className="pl-5 py-5" style={{ paddingRight: '9.43px' }}><PriorityBadge priority={t.priority} /></td>
+                            <td className="pl-5 py-5" style={{ paddingRight: '9.43px' }}><StatusBadge status={t.status} /></td>
+                            <td className="pl-5 py-5 text-xs text-gray-500 whitespace-nowrap" style={{ paddingRight: '9.43px' }}>{formatDate(t.createdAt)}</td>
+                            <td className="pl-5 py-5" style={{ paddingRight: '9.43px' }}>
+                              <button onClick={() => setSelectedTicket(t)} className="text-sm font-semibold hover:opacity-80" style={{ color: '#009F51' }}>View</button>
                             </td>
                           </tr>
                         ))
@@ -718,7 +750,7 @@ export default function SupportDisputesPage() {
             <div className="p-8 space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-bold text-emerald-600">Dispute Management</h2>
+                  <h2 className="text-lg font-bold" style={{ color: '#009F51' }}>Dispute Management</h2>
                   <p className="text-sm text-gray-500 mt-0.5">Handle transaction disputes and chargebacks</p>
                 </div>
                 <button
@@ -735,11 +767,10 @@ export default function SupportDisputesPage() {
                       d.createdAt ?? '',
                     ])
                   )}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors"
+                  className="flex items-center justify-center transition-colors"
+                  style={{ width: 126, height: 48, gap: 8, borderRadius: 100, padding: '12px 20px', backgroundColor: '#009F51', color: '#ffffff', fontFamily: 'Geist, sans-serif', fontWeight: 400, fontSize: 18, lineHeight: '150%', letterSpacing: '0%' }}
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
-                  </svg>
+                  <Image src="/exportIcon.png" alt="" width={15} height={15} />
                   Export
                 </button>
               </div>
@@ -747,15 +778,15 @@ export default function SupportDisputesPage() {
               {/* Stat cards */}
               <div className="grid grid-cols-4 gap-4">
                 {([
-                  { label: 'Total Disputes',  value: disputeStats?.total,        color: 'text-gray-900' },
-                  { label: 'Open Disputes',   value: disputeStats?.open,         color: 'text-red-500' },
-                  { label: 'Resolved Today',  value: disputeStats?.resolved,     color: 'text-emerald-600' },
-                  { label: 'Pending Review',  value: disputeStats?.under_review, color: 'text-purple-600' },
+                  { label: 'Total Disputes',  value: disputeStats?.total,        color: '#1A1D1F' },
+                  { label: 'Open Disputes',   value: disputeStats?.open,         color: '#FF756B' },
+                  { label: 'Resolved Today',  value: disputeStats?.resolved,     color: '#009F51' },
+                  { label: 'Pending Review',  value: disputeStats?.under_review, color: '#9810FA' },
                 ] as { label: string; value?: number; color: string }[]).map((s) => (
-                  <div key={s.label} className="bg-white rounded-2xl border border-gray-200 p-5">
+                  <div key={s.label} className="rounded-xl p-5" style={{ backgroundColor: '#F8F9FA' }}>
                     <p className="text-xs text-gray-500 mb-2">{s.label}</p>
                     {loadingDisputeStats ? <Skeleton className="h-9 w-16" /> : (
-                      <p className={`text-3xl font-bold ${s.color}`}>{s.value ?? '—'}</p>
+                      <p className="text-3xl font-bold" style={{ color: s.color }}>{s.value ?? '—'}</p>
                     )}
                   </div>
                 ))}
@@ -770,29 +801,29 @@ export default function SupportDisputesPage() {
               </div>
 
               {/* Table */}
-              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <TableHead cols={['Txn ID', 'Client Name', 'Subject', 'Type', 'Priority', 'Status', 'Date/time', 'Actions']} />
-                    <tbody className="divide-y divide-gray-50">
+                    <tbody>
                       {loadingDisputes ? (
                         [...Array(6)].map((_, i) => (
-                          <tr key={i}>{[...Array(8)].map((_, j) => <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                          <tr key={i} style={{ borderBottom: '1.05px solid #DFE1E7' }}>{[...Array(8)].map((_, j) => <td key={j} className="pl-5 py-5" style={{ paddingRight: '9.43px' }}><Skeleton className="h-5 w-full" /></td>)}</tr>
                         ))
                       ) : disputes.length === 0 ? (
                         <tr><td colSpan={8} className="px-5 py-12 text-center text-sm text-gray-400">No disputes found</td></tr>
                       ) : (
                         disputes.map((d) => (
-                          <tr key={d.id} className="hover:bg-gray-50/50 transition-colors">
-                            <td className="px-5 py-4 text-xs font-mono text-gray-600">{(d as any).reference ?? `TX-${d.id}`}</td>
-                            <td className="px-5 py-4"><ClientCell name={d.user ? `${d.user.firstName ?? ''} ${d.user.lastName ?? ''}`.trim() || d.user.email : '—'} userId={d.user?.changpayId ?? d.user?.email ?? undefined} /></td>
-                            <td className="px-5 py-4 text-sm text-gray-700 max-w-[180px] truncate">{d.subject}</td>
-                            <td className="px-5 py-4 text-sm text-gray-600 capitalize">{d.type ?? 'Dispute'}</td>
-                            <td className="px-5 py-4"><PriorityBadge priority={(d as any).priority ?? 'medium'} /></td>
-                            <td className="px-5 py-4"><StatusBadge status={d.status} /></td>
-                            <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{formatDate(d.createdAt)}</td>
-                            <td className="px-5 py-4">
-                              <button onClick={() => setSelectedDispute(d)} className="text-sm font-semibold text-emerald-600 hover:text-emerald-700">View</button>
+                          <tr key={d.id} className="hover:bg-gray-50/50 transition-colors" style={{ borderBottom: '1.05px solid #DFE1E7' }}>
+                            <td className="pl-5 py-5" style={{ paddingRight: '9.43px', fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif", fontWeight: 600, fontSize: 14, lineHeight: '150%', letterSpacing: '2%', color: '#1A1D1F' }}>{(d as any).reference ?? `TX-${d.id}`}</td>
+                            <td className="pl-5 py-5" style={{ paddingRight: '9.43px' }}><ClientCell name={d.user ? `${d.user.firstName ?? ''} ${d.user.lastName ?? ''}`.trim() || d.user.email : '—'} userId={d.user?.changpayId ?? d.user?.email ?? undefined} /></td>
+                            <td className="pl-5 py-5 max-w-[180px] truncate" style={{ paddingRight: '9.43px', fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, system-ui, sans-serif", fontWeight: 500, fontSize: 14, lineHeight: '120%', letterSpacing: '2%', color: '#1A1D1F' }}>{d.subject}</td>
+                            <td className="pl-5 py-5 capitalize" style={{ paddingRight: '9.43px', ...INTER_TIGHT, fontWeight: 500, fontSize: 14.67, lineHeight: '150%', letterSpacing: '2%', color: '#1A1D1F' }}>{d.type ?? 'Dispute'}</td>
+                            <td className="pl-5 py-5" style={{ paddingRight: '9.43px' }}><PriorityBadge priority={(d as any).priority ?? 'medium'} /></td>
+                            <td className="pl-5 py-5" style={{ paddingRight: '9.43px' }}><StatusBadge status={d.status} /></td>
+                            <td className="pl-5 py-5 text-xs text-gray-500 whitespace-nowrap" style={{ paddingRight: '9.43px' }}>{formatDate(d.createdAt)}</td>
+                            <td className="pl-5 py-5" style={{ paddingRight: '9.43px' }}>
+                              <button onClick={() => setSelectedDispute(d)} className="text-sm font-semibold hover:opacity-80" style={{ color: '#009F51' }}>View</button>
                             </td>
                           </tr>
                         ))
@@ -823,5 +854,13 @@ export default function SupportDisputesPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function SupportDisputesPage() {
+  return (
+    <Suspense fallback={null}>
+      <SupportDisputesPageInner />
+    </Suspense>
   );
 }

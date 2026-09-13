@@ -6,6 +6,9 @@ import { fxApi, walletApi } from '@/lib/api/client';
 import type { ConversionRate, FxOverviewSummary, SpreadConfig, CryptoRateMarkup, WalletRecord, CurrencyWalletData } from '@/lib/api/client';
 import DashboardHeader from '@/components/DashboardHeader';
 import Sidebar from '@/components/Sidebar';
+import Image from 'next/image';
+
+const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif" };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type MainTab = 'overview' | 'usd-wallet' | 'ngn-wallet' | 'yuan-wallet';
@@ -38,7 +41,7 @@ function Toggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean
       type="button"
       onClick={() => onChange(!enabled)}
       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
-        enabled ? 'bg-emerald-500' : 'bg-gray-300'
+        enabled ? 'bg-[#009F51]' : 'bg-gray-300'
       }`}
     >
       <span
@@ -53,11 +56,10 @@ function Toggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean
 // ─── Active badge ─────────────────────────────────────────────────────────────
 function ActiveBadge({ isActive }: { isActive: boolean }) {
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
-      isActive
-        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-        : 'bg-gray-100 text-gray-500 border-gray-200'
-    }`}>
+    <span className="inline-flex items-center justify-center text-xs font-semibold"
+      style={isActive
+        ? { backgroundColor: '#D9F5DB', color: '#047857', width: 43, height: 24, gap: 4, borderRadius: 4, paddingLeft: 4, paddingRight: 4 }
+        : { backgroundColor: '#F3F4F6', color: '#6B7280', height: 24, gap: 4, borderRadius: 4, paddingLeft: 8, paddingRight: 8 }}>
       {isActive ? 'Active' : 'Inactive'}
     </span>
   );
@@ -66,8 +68,9 @@ function ActiveBadge({ isActive }: { isActive: boolean }) {
 // ─── Change badge ─────────────────────────────────────────────────────────────
 function ChangeBadge({ value }: { value?: string }) {
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded text-xs font-semibold border border-emerald-100">
-      <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+    <span className="inline-flex items-center justify-center text-xs font-semibold text-[#009F51]"
+      style={{ backgroundColor: '#D9F5DB', width: 66, height: 24, gap: 4, borderRadius: 4, paddingLeft: 4, paddingRight: 4 }}>
+      <svg className="w-3 h-3 mr-0.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
       </svg>
       {value ?? '+20%'}
@@ -78,8 +81,8 @@ function ChangeBadge({ value }: { value?: string }) {
 // ─── Pair icon ────────────────────────────────────────────────────────────────
 function PairIcon() {
   return (
-    <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
-      <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+    <div className="w-10 h-10 rounded-full bg-[#E1F7EB] flex items-center justify-center flex-shrink-0">
+      <svg className="w-5 h-5 text-[#009F51]" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
       </svg>
     </div>
@@ -99,7 +102,7 @@ interface RateCardProps {
 
 function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride, hasActiveOverride, onRelease, releasingThis }: RateCardProps) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+    <div className="bg-white rounded-xl overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-6 pt-6 pb-4">
         <div className="flex items-center gap-3">
@@ -130,7 +133,7 @@ function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride, has
       <div className="grid grid-cols-2 gap-3 mx-6 mb-4">
         <div className="bg-[#F8F9FA] rounded-xl px-5 py-4">
           <p className="text-xs text-gray-500 mb-1">Buy Rate</p>
-          <p className="text-2xl font-bold text-emerald-500">{rate.buy_rate ?? (rate as any).buy_rate ?? '—'}</p>
+          <p className="text-2xl font-bold text-[#009F51]">{rate.buy_rate ?? (rate as any).buy_rate ?? '—'}</p>
         </div>
         <div className="bg-red-50 rounded-xl px-5 py-4">
           <p className="text-xs text-gray-500 mb-1">Sell Rate</p>
@@ -166,7 +169,8 @@ function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride, has
           ) : (
             <button
               onClick={onOpenOverride}
-              className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-semibold hover:bg-emerald-600 transition-colors"
+              className="px-3 py-1.5 text-white rounded-lg text-xs font-semibold transition-colors hover:opacity-90"
+              style={{ backgroundColor: '#009F51' }}
             >
               Set Override
             </button>
@@ -229,7 +233,7 @@ function OverrideModal({ rate, onClose, onSuccess }: {
         </button>
         <div className="mb-8">
           <h3 className="text-xl font-bold text-gray-900">Set Manual Override</h3>
-          <p className="text-sm text-gray-500 mt-1">Currency Pair: <span className="font-semibold text-emerald-600">{rate.pair}</span></p>
+          <p className="text-sm text-gray-500 mt-1">Currency Pair: <span className="font-semibold text-[#009F51]">{rate.pair}</span></p>
         </div>
         <div className="space-y-5 flex-1">
           {([
@@ -243,7 +247,7 @@ function OverrideModal({ rate, onClose, onSuccess }: {
                 value={val}
                 onChange={(e) => set(e.target.value)}
                 placeholder="0.00"
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#009F51]"
               />
             </div>
           ))}
@@ -254,7 +258,7 @@ function OverrideModal({ rate, onClose, onSuccess }: {
               onChange={(e) => setReason(e.target.value)}
               placeholder="Provide reason..."
               rows={4}
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#009F51]"
             />
           </div>
           {err && (
@@ -269,7 +273,7 @@ function OverrideModal({ rate, onClose, onSuccess }: {
         </div>
         <div className="mt-8 space-y-3">
           <button onClick={onClose} disabled={submitting} className="w-full px-6 py-3 border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors disabled:opacity-50">Cancel</button>
-          <button onClick={handleSubmit} disabled={submitting} className="w-full px-6 py-3 bg-emerald-500 text-white rounded-xl text-sm font-semibold hover:bg-emerald-600 transition-colors disabled:opacity-60">
+          <button onClick={handleSubmit} disabled={submitting} className="w-full px-6 py-3 bg-[#009F51] text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-colors disabled:opacity-60">
             {submitting ? 'Applying…' : 'Apply Override'}
           </button>
         </div>
@@ -295,7 +299,7 @@ function ConfigureSpreadModal({ spread, onClose }: { spread: SpreadConfig; onClo
         </button>
         <div className="mb-8">
           <h3 className="text-xl font-bold text-gray-900">Configure Spread</h3>
-          <p className="text-sm text-gray-500 mt-1">Currency Pair: <span className="font-semibold text-emerald-600">{spread.pair}</span></p>
+          <p className="text-sm text-gray-500 mt-1">Currency Pair: <span className="font-semibold text-[#009F51]">{spread.pair}</span></p>
         </div>
         <div className="space-y-5 flex-1">
           {([
@@ -309,7 +313,7 @@ function ConfigureSpreadModal({ spread, onClose }: { spread: SpreadConfig; onClo
                 type="number"
                 value={val}
                 onChange={(e) => set(e.target.value)}
-                className="w-full px-4 py-3 border text-gray-900 border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                className="w-full px-4 py-3 border text-gray-900 border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#009F51]"
               />
             </div>
           ))}
@@ -319,7 +323,7 @@ function ConfigureSpreadModal({ spread, onClose }: { spread: SpreadConfig; onClo
         </div>
         <div className="mt-8 space-y-3">
           <button onClick={onClose} className="w-full px-6 py-3 border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors">Cancel</button>
-          <button onClick={onClose} className="w-full px-6 py-3 bg-emerald-500 text-white rounded-xl text-sm font-semibold hover:bg-emerald-600 transition-colors">Save Changes</button>
+          <button onClick={onClose} className="w-full px-6 py-3 bg-[#009F51] text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-colors">Save Changes</button>
         </div>
       </div>
     </div>
@@ -465,7 +469,7 @@ export default function FXEnginePage() {
   const activePairs = summary?.active_conversion_pairs ?? conversionRates.filter((r) => r.is_active).length;
 
   return (
-    <div className="flex h-screen bg-[#F8F9FA] font-['DM_Sans',sans-serif]">
+    <div className="flex h-screen bg-white" style={FONT}>
       <Sidebar />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -475,28 +479,31 @@ export default function FXEnginePage() {
           <DashboardHeader
             title="FX Engine"
             subtitle="Real-time foreign exchange rate management and conversion engine"
+            large
           />
         </div>
 
-        <div className="w-full bg-[#F8F9FA] flex-shrink-0">
-          <div className="flex items-stretch ml-6 w-full">
+        <div className="w-full bg-white px-8 py-4 flex-shrink-0">
+          <div className="flex items-stretch w-full gap-2">
             <button
               onClick={() => setMainTab('overview')}
-              className={`px-10 text-sm font-bold text-center transition-colors flex-shrink-0 ${
-                mainTab === 'overview' ? 'bg-emerald-500 text-white' : 'text-gray-700 hover:text-gray-900'
-              }`}
+              className="flex-1 flex items-center justify-center text-sm font-medium text-center transition-colors rounded-lg"
+              style={mainTab === 'overview'
+                ? { backgroundColor: '#009F51', color: '#E1F7EB', height: 48, gap: 8, padding: '12px 16px' }
+                : { backgroundColor: '#F8F9FA', color: '#374151', height: 48, gap: 8, padding: '12px 16px' }}
             >
               Overview
             </button>
             {(['usd-wallet', 'ngn-wallet', 'yuan-wallet'] as MainTab[]).map((id) => {
-              const label = id === 'usd-wallet' ? 'USD WALLET' : id === 'ngn-wallet' ? 'NGN WALLET' : 'YUAN WALLET';
+              const label = id === 'usd-wallet' ? 'USD Wallet' : id === 'ngn-wallet' ? 'NGN Wallet' : 'YUAN Wallet';
               return (
                 <button
                   key={id}
                   onClick={() => setMainTab(id)}
-                  className={`flex-1 py-4 text-sm font-bold text-center transition-colors ${
-                    mainTab === id ? 'bg-emerald-500 text-white' : 'text-gray-700 hover:text-gray-900'
-                  }`}
+                  className="flex-1 flex items-center justify-center text-sm font-medium text-center transition-colors rounded-lg"
+                  style={mainTab === id
+                    ? { backgroundColor: '#009F51', color: '#E1F7EB', height: 48, gap: 8, padding: '12px 16px' }
+                    : { backgroundColor: '#F8F9FA', color: '#374151', height: 48, gap: 8, padding: '12px 16px' }}
                 >
                   {label}
                 </button>
@@ -506,33 +513,21 @@ export default function FXEnginePage() {
         </div>
 
         {mainTab === 'overview' && (
-          <div className="w-full bg-white flex items-center flex-shrink-0 px-8 border-b border-gray-100">
-            <div className="flex flex-1">
-              {SUB_TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setSubTab(tab.id)}
-                  className={`relative flex-1 py-4 text-sm font-medium text-center transition-colors whitespace-nowrap ${
-                    subTab === tab.id ? 'text-emerald-600' : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  {tab.label}
-                  {subTab === tab.id && (
-                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500" />
-                  )}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={fetchOverview}
-              disabled={isLoading}
-              className="ml-6 flex items-center gap-2 px-5 py-2 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 disabled:opacity-50 transition-colors flex-shrink-0"
-            >
-              <svg className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-              </svg>
-              Refresh Now
-            </button>
+          <div className="w-full bg-white flex items-stretch flex-shrink-0 px-8 border-b border-gray-100">
+            {SUB_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setSubTab(tab.id)}
+                className={`relative flex-1 py-4 text-sm font-medium text-center transition-colors whitespace-nowrap ${
+                  subTab === tab.id ? 'text-[#009F51]' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {tab.label}
+                {subTab === tab.id && (
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#009F51]" />
+                )}
+              </button>
+            ))}
           </div>
         )}
 
@@ -552,14 +547,24 @@ export default function FXEnginePage() {
               {subTab === 'live-rates' && (
                 <div className="p-8 space-y-6">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <h2 className="text-lg font-bold text-gray-900">FX Rates</h2>
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-500 text-white rounded-full text-xs font-bold">
-                        <span className="w-1.5 h-1.5 rounded-full bg-white inline-block" />
-                        LIVE
-                      </span>
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <h2 className="text-lg font-bold text-gray-900 whitespace-nowrap">FX Rates</h2>
+                        <Image src="/live.png" alt="LIVE" width={64} height={24} className="block" />
+                      </div>
+                      <p className="text-sm text-gray-400 whitespace-nowrap mt-1">Last updated: {lastUpdated || '—'}</p>
                     </div>
-                    <p className="text-sm text-gray-400">Last updated: {lastUpdated || '—'}</p>
+                    <button
+                      onClick={fetchOverview}
+                      disabled={isLoading}
+                      className="flex items-center justify-center disabled:opacity-50 transition-colors flex-shrink-0 whitespace-nowrap"
+                      style={{ backgroundColor: '#009F51', color: '#E1F7EB', minWidth: 176, height: 56, gap: 8, borderRadius: 200, padding: 12, ...FONT, fontWeight: 600, fontSize: 20, lineHeight: '120%', letterSpacing: '-1%' }}
+                    >
+                      <svg className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                      </svg>
+                      Refresh Now
+                    </button>
                   </div>
 
                   {isLoading ? (
@@ -567,26 +572,28 @@ export default function FXEnginePage() {
                       {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-64 w-full" />)}
                     </div>
                   ) : conversionRates.length === 0 ? (
-                    <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
+                    <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
                       <p className="text-gray-400 text-sm">No conversion rates available.</p>
                     </div>
                   ) : (
-                    <div className="space-y-5">
-                      {conversionRates.map((rate, idx) => (
-                        <RateCard
-                          key={rate.id ?? idx}
-                          rate={rate}
-                          overrideEnabled={!!overrides[rate.pair]}
-                          onToggleOverride={(val) => {
-                            setOverrides((prev) => ({ ...prev, [rate.pair]: val }));
-                            if (val && !appliedOverrides[rate.pair]) setOverrideModal(rate);
-                          }}
-                          onOpenOverride={() => setOverrideModal(rate)}
-                          hasActiveOverride={appliedOverrides[rate.pair] != null}
-                          onRelease={() => handleRelease(rate.pair)}
-                          releasingThis={releasingOverride === rate.pair}
-                        />
-                      ))}
+                    <div style={{ backgroundColor: '#F8F9FA', borderRadius: 16, borderWidth: '1.05px', borderStyle: 'solid', borderColor: '#E1E4E6', paddingTop: 16, paddingBottom: 16, paddingLeft: 12, paddingRight: 12 }}>
+                      <div className="space-y-5">
+                        {conversionRates.map((rate, idx) => (
+                          <RateCard
+                            key={rate.id ?? idx}
+                            rate={rate}
+                            overrideEnabled={!!overrides[rate.pair]}
+                            onToggleOverride={(val) => {
+                              setOverrides((prev) => ({ ...prev, [rate.pair]: val }));
+                              if (val && !appliedOverrides[rate.pair]) setOverrideModal(rate);
+                            }}
+                            onOpenOverride={() => setOverrideModal(rate)}
+                            hasActiveOverride={appliedOverrides[rate.pair] != null}
+                            onRelease={() => handleRelease(rate.pair)}
+                            releasingThis={releasingOverride === rate.pair}
+                          />
+                        ))}
+                      </div>
                     </div>
                   )}
 
@@ -595,19 +602,19 @@ export default function FXEnginePage() {
                     <div className="pt-2">
                       <h3 className="text-lg font-bold text-gray-900 mb-4">Rate Engine Status</h3>
                       <div className="grid grid-cols-4 gap-4">
-                        <div className="bg-emerald-50 rounded-2xl p-5 border border-emerald-100">
+                        <div className="bg-[#F5FCF7] rounded-xl p-5 border border-[#E1F7EB]">
                           <p className="text-xs text-gray-500 mb-2">Active Pairs</p>
-                          <p className="text-3xl font-bold text-emerald-600">{activePairs}</p>
+                          <p className="text-3xl font-bold text-[#009F51]">{activePairs}</p>
                         </div>
-                        <div className="bg-blue-50 rounded-2xl p-5 border border-blue-100">
+                        <div className="bg-blue-50 rounded-xl p-5 border border-blue-100">
                           <p className="text-xs text-gray-500 mb-2">Avg Spread</p>
                           <p className="text-3xl font-bold text-blue-600">{(summary as any)?.avg_spread ?? '—'}</p>
                         </div>
-                        <div className="bg-violet-50 rounded-2xl p-5 border border-violet-100">
+                        <div className="bg-violet-50 rounded-xl p-5 border border-violet-100">
                           <p className="text-xs text-gray-500 mb-2">24h Volume</p>
                           <p className="text-3xl font-bold text-violet-600">{(summary as any)?.volume_24h ?? '—'}</p>
                         </div>
-                        <div className="bg-amber-50 rounded-2xl p-5 border border-amber-100">
+                        <div className="bg-amber-50 rounded-xl p-5 border border-amber-100">
                           <p className="text-xs text-gray-500 mb-2">Last Update</p>
                           <p className="text-2xl font-bold text-amber-600">{lastUpdated || '—'}</p>
                         </div>
@@ -624,7 +631,7 @@ export default function FXEnginePage() {
                     <h2 className="text-lg font-bold text-gray-900">Spread Configuration</h2>
                     <p className="text-sm text-gray-500 mt-0.5">Manage base and dynamic spreads for each currency pair</p>
                   </div>
-                  <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full">
                         <TableHead cols={['Currency Pair', 'Base Spread', 'Dynamic Spread', 'Total Spread', 'Min / Max', 'Status', 'Action']} />
@@ -646,7 +653,7 @@ export default function FXEnginePage() {
                                     <td className="px-5 py-4">
                                       <button
                                         onClick={() => setConfigSpreadModal(row)}
-                                        className="text-sm font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
+                                        className="text-sm font-semibold text-[#009F51] hover:text-[#009F51] transition-colors"
                                       >
                                         Configure
                                       </button>
@@ -658,7 +665,7 @@ export default function FXEnginePage() {
                       </table>
                     </div>
                   </div>
-                  <div className="bg-blue-50 border border-blue-100 rounded-2xl p-6">
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-6">
                     <h3 className="text-sm font-bold text-blue-900 mb-3">How Spreads Work</h3>
                     <div className="space-y-1.5 text-sm text-blue-900">
                       <p><span className="font-bold">Base Spread:</span> Fixed spread percentage applied to all transactions</p>
@@ -683,10 +690,10 @@ export default function FXEnginePage() {
                     {([
                       { label: 'Total Changes',    value: (summary as any)?.total_changes    ?? '—', color: 'text-gray-900' },
                       { label: 'Manual Overrides', value: (summary as any)?.manual_overrides ?? '—', color: 'text-gray-900' },
-                      { label: 'Auto Updates',     value: (summary as any)?.auto_updates     ?? '—', color: 'text-emerald-600' },
+                      { label: 'Auto Updates',     value: (summary as any)?.auto_updates     ?? '—', color: 'text-[#009F51]' },
                       { label: 'Active Crypto',    value: summary?.active_crypto_rates       ?? '—', color: 'text-gray-900' },
                     ] as { label: string; value: string | number; color: string }[]).map((s) => (
-                      <div key={s.label} className="bg-white rounded-2xl border border-gray-200 p-5">
+                      <div key={s.label} className="rounded-xl p-5" style={{ backgroundColor: '#F8F9FA' }}>
                         <p className="text-xs text-gray-500 mb-2">{s.label}</p>
                         <p className={`text-3xl font-bold ${s.color}`}>{s.value}</p>
                       </div>
@@ -694,7 +701,7 @@ export default function FXEnginePage() {
                   </div>
 
                   {/* Crypto rates table */}
-                  <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full">
                         <TableHead cols={['Crypto Currency', 'Rate Markup (%)', 'Status', 'Last Updated']} />
@@ -722,7 +729,7 @@ export default function FXEnginePage() {
                   {/* Latest Change Details — API data only */}
                   <div className="space-y-4">
                     <h3 className="text-base font-bold text-gray-900">Latest Change Details</h3>
-                    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                       {latestChange ? (
                         <>
                           <div className="grid grid-cols-2 gap-6 px-6 py-5 border-b border-gray-100">
@@ -789,11 +796,11 @@ export default function FXEnginePage() {
                 <div className="grid grid-cols-4 gap-4">
                   {[
                     { label: 'Total Wallets',   value: loadingFxWallets ? '—' : String(stats?.total_wallets  ?? '—'), color: 'text-gray-900'    },
-                    { label: 'Active Wallets',  value: loadingFxWallets ? '—' : String(stats?.active_wallets ?? '—'), color: 'text-emerald-600' },
+                    { label: 'Active Wallets',  value: loadingFxWallets ? '—' : String(stats?.active_wallets ?? '—'), color: 'text-[#009F51]' },
                     { label: 'Locked Wallets',  value: loadingFxWallets ? '—' : String(stats?.locked_wallets ?? '—'), color: 'text-red-500'     },
                     { label: 'Total Balance',   value: loadingFxWallets ? '—' : stats?.total_balance != null ? `${curSymbol}${Number(stats.total_balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—', color: 'text-blue-600' },
                   ].map((s) => (
-                    <div key={s.label} className="bg-white rounded-2xl border border-gray-200 p-5">
+                    <div key={s.label} className="rounded-xl p-5" style={{ backgroundColor: '#F8F9FA' }}>
                       <p className="text-xs text-gray-500 mb-2">{s.label}</p>
                       <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
                     </div>
@@ -811,13 +818,13 @@ export default function FXEnginePage() {
                       value={fxWalletSearch}
                       onChange={(e) => { setFxWalletSearch(e.target.value); setFxWalletPage(1); }}
                       placeholder="Search by wallet UID, name, email..."
-                      className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                      className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#009F51]"
                     />
                   </div>
                 </div>
 
                 {/* Wallets table */}
-                <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <TableHead cols={['User', 'Wallet ID', 'Balance', 'Status', 'Last Activity', 'Action']} />
@@ -836,7 +843,7 @@ export default function FXEnginePage() {
                                   <tr key={w.id} className="hover:bg-gray-50/50 transition-colors">
                                     <td className="px-5 py-4">
                                       <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-xs font-bold text-emerald-700 flex-shrink-0">{initials}</div>
+                                        <div className="w-8 h-8 rounded-full bg-[#E1F7EB] flex items-center justify-center text-xs font-bold text-[#009F51] flex-shrink-0">{initials}</div>
                                         <div>
                                           <p className="text-sm font-semibold text-gray-900">{fullName}</p>
                                           <p className="text-xs text-gray-400">{w.user?.changpayId ?? w.user?.email ?? '—'}</p>
@@ -863,7 +870,7 @@ export default function FXEnginePage() {
                                         disabled={togglingWalletId === w.id}
                                         className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${
                                           w.isLocked
-                                            ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                            ? 'bg-[#F5FCF7] text-[#009F51] hover:bg-[#E1F7EB]'
                                             : 'bg-red-50 text-red-600 hover:bg-red-100'
                                         }`}
                                       >

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 import { dashboardApi } from '@/lib/api/client';
 import type { DashboardOverviewData, ChartData, RecentTransaction } from '@/lib/api/client';
@@ -11,6 +12,7 @@ import Image from 'next/image';
 type ChartInterval = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
 const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif", color: '#1A1D1F' };
+const CELL_TEXT: React.CSSProperties = { fontWeight: 500, fontSize: '14.67px', lineHeight: '150%', letterSpacing: '0.02em', color: '#1A1D1F' };
 
 /* ── Skeleton ── */
 function Skeleton({ w = 'w-full', h = 'h-4' }: { w?: string; h?: string }) {
@@ -23,9 +25,11 @@ function StatCard({ label, value, subLabel, subTrend, subTrendValue, icon, loadi
   subTrend?: 'up' | 'down'; subTrendValue?: string;
   icon: React.ReactNode; loading: boolean;
 }) {
+  const trend = subTrend ?? 'down';
+  const trendValue = subTrendValue ?? '0';
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 p-5 flex flex-col gap-2" style={FONT}>
-      <p className="text-xs font-medium text-gray-500">{label}</p>
+    <div className="bg-[#F8F9FA] rounded-2xl p-5 flex flex-col gap-2 h-[130px]" style={FONT}>
+      <p className="text-xs font-medium" style={{ color: '#6A7377' }}>{label}</p>
       {loading ? <Skeleton h="h-9" w="w-36" /> : (
         <div className="flex items-center gap-2">
           <span>{icon}</span>
@@ -34,15 +38,11 @@ function StatCard({ label, value, subLabel, subTrend, subTrendValue, icon, loadi
       )}
       {!loading && (
         <div className="flex items-center gap-1.5 mt-0.5">
-          <span className="text-[11px] text-gray-500">{subLabel}</span>
-          {subTrend && subTrendValue && (
-            <span className={`flex items-center gap-0.5 text-[11px] font-semibold ${subTrend === 'up' ? 'text-emerald-500' : 'text-red-400'}`}>
-              {subTrend === 'up'
-                ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1.5L8.5 7H1.5Z" fill="currentColor"/></svg>
-                : <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 8.5L1.5 3H8.5Z" fill="currentColor"/></svg>}
-              {subTrendValue}
-            </span>
-          )}
+          <span className="text-[11px]" style={{ color: '#6A7377' }}>{subLabel}</span>
+          <span className={`flex items-center gap-0.5 text-[11px] font-semibold ${trend === 'up' ? 'text-emerald-500' : 'text-red-400'}`}>
+            <Image src={trend === 'up' ? '/arrowup.png' : '/arrowdwn.png'} alt="" width={10} height={10} />
+            {trendValue}
+          </span>
         </div>
       )}
     </div>
@@ -63,14 +63,21 @@ function smoothCurve(pts: { x: number; y: number }[]): string {
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 function formatPeriodLabel(period: number | string, interval: string): string {
-  const n = Number(period);
-  if (interval === 'monthly') return MONTHS[(n - 1)] ?? String(period);
+  const s = String(period);
+  if (interval === 'monthly') {
+    const ym = s.match(/^\d{4}-(\d{1,2})$/);
+    if (ym) return MONTHS[Number(ym[1]) - 1] ?? s;
+    const n = Number(s);
+    if (!isNaN(n) && n >= 1 && n <= 12) return MONTHS[n - 1];
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? s : d.toLocaleDateString('en-US', { month: 'short' });
+  }
   if (interval === 'daily') {
-    const d = new Date(String(period));
-    return isNaN(d.getTime()) ? String(period) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? s : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
   if (interval === 'weekly') return `W${period}`;
-  return String(period);
+  return s;
 }
 
 function TransactionChart({ data, loading }: { data: ChartData | null; loading: boolean }) {
@@ -97,11 +104,7 @@ function TransactionChart({ data, loading }: { data: ChartData | null; loading: 
     ? `${pathD} L${coords[coords.length - 1].x},${H} L${coords[0].x},${H} Z`
     : '';
 
-  const formatY = (v: number) => {
-    if (v >= 1_000_000) return `₦${(v / 1_000_000).toFixed(0)}M`;
-    if (v >= 1_000)     return `₦${(v / 1_000).toFixed(0)}k`;
-    return `₦${Math.round(v)}`;
-  };
+  const formatY = (v: number) => `₦${Math.round(v).toLocaleString('en-US')}`;
 
   const yTicks = [max, max * 0.75, max * 0.5, max * 0.25, 0];
   const step = Math.max(1, Math.floor(points.length / 7));
@@ -192,15 +195,15 @@ function TransactionChart({ data, loading }: { data: ChartData | null; loading: 
 /* ── Status Badge ── */
 function StatusBadge({ status }: { status: string }) {
   const s = status?.toLowerCase().replace(/[\s_]+/g, '');
-  const cfg =
-    s === 'completed' || s === 'success' ? 'border-emerald-500 text-emerald-600' :
-    s === 'ongoing' || s === 'on_going'  ? 'border-blue-500 text-blue-600' :
-    s === 'pending'                       ? 'border-amber-500 text-amber-600' :
-    s === 'failed'                        ? 'border-red-500 text-red-600' :
-    s === 'processing'                    ? 'border-orange-400 text-orange-600' :
-    'border-gray-300 text-gray-500';
+  const style: React.CSSProperties =
+    s === 'completed' || s === 'success' ? { color: '#339D88', borderColor: '#339D88', backgroundColor: '#EFFEFA' } :
+    s === 'failed'                       ? { color: '#FF756B', borderColor: '#FF756B', backgroundColor: '#FF756B1A' } :
+    s === 'processing'                   ? { color: '#9E4300', borderColor: 'transparent', backgroundColor: '#FFD37933' } :
+    s === 'ongoing' || s === 'on_going'  ? { color: '#2563EB', borderColor: '#2563EB', backgroundColor: '#ffffff' } :
+    s === 'pending'                      ? { color: '#D97706', borderColor: '#D97706', backgroundColor: '#ffffff' } :
+    { color: '#A8B0B5', borderColor: '#A8B0B5', backgroundColor: '#F8F9FA' };
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold capitalize border bg-white whitespace-nowrap ${cfg}`}>
+    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold capitalize border whitespace-nowrap" style={style}>
       {status}
     </span>
   );
@@ -210,10 +213,12 @@ function StatusBadge({ status }: { status: string }) {
 function RiskBadge({ risk }: { risk?: string }) {
   const r = risk?.toLowerCase();
   if (!r || r === 'none') return (
-    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full border border-gray-200 text-[11px] text-gray-500 bg-white whitespace-nowrap">None</span>
+    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full border text-[11px] whitespace-nowrap" style={{ backgroundColor: '#F8F9FA', borderColor: '#A8B0B5', color: '#A8B0B5' }}>None</span>
   );
-  const cfg = r === 'high' ? 'bg-red-500 text-white border-red-500' : 'bg-amber-400 text-white border-amber-400';
-  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase border whitespace-nowrap ${cfg}`}>{risk}</span>;
+  const style: React.CSSProperties = r === 'high'
+    ? { color: '#FF756B', borderColor: '#FF756B', backgroundColor: '#FF756B1A' }
+    : { color: '#9E4300', borderColor: 'transparent', backgroundColor: '#FFD37933' };
+  return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase border whitespace-nowrap" style={style}>{risk}</span>;
 }
 
 function fmtBalance(amount: number | undefined, symbol: string): string {
@@ -231,6 +236,10 @@ function fmtPct(pct: number | undefined): string {
   const sign = pct >= 0 ? '+' : '-';
   if (abs >= 10_000) return `${sign}${(abs / 1000).toFixed(0)}K%`;
   return `${sign}${abs.toFixed(1)}%`;
+}
+
+function toTitleCase(name: string): string {
+  return name.toLowerCase().replace(/(^|\s|-)\S/g, (c) => c.toUpperCase());
 }
 
 function fmtTxAmount(amount: number, currency: string): string {
@@ -269,13 +278,14 @@ const INTERVAL_OPTIONS: { key: ChartInterval; label: string }[] = [
 ];
 
 const PENDING_ACTIONS = [
-  { label: 'KYC/KYB approvals',   key: 'kyc_approvals',        icon: '/kyc.svg' },
-  { label: 'Failed payouts',       key: 'failed_payouts',       icon: '/failed.svg' },
-  { label: 'Flagged transactions', key: 'flagged_transactions',  icon: '/flagged.svg' },
-  { label: 'Disputes',             key: 'open_disputes',         icon: '/disputes.svg' },
+  { label: 'KYC/KYB approvals',   key: 'kyc_approvals',        icon: '/kyc.svg',     href: '/dashboard/kyc-verification?status=pending' },
+  { label: 'Failed payouts',       key: 'failed_payouts',       icon: '/failed.svg',  href: '/dashboard/banks-payouts?tab=payout&status=failed' },
+  { label: 'Flagged transactions', key: 'flagged_transactions',  icon: '/flagged.svg', href: '/dashboard/transactions?risk=high' },
+  { label: 'Disputes',             key: 'open_disputes',         icon: '/disputes.svg', href: '/dashboard/support?tab=disputes' },
 ] as const;
 
 export default function DashboardHome() {
+  const router = useRouter();
   const { isAuthenticated, user } = useAuthStore();
 
   const [overview,        setOverview]        = useState<DashboardOverviewData | null>(null);
@@ -349,6 +359,7 @@ export default function DashboardHome() {
           <DashboardHeader
             title={`Welcome Back, ${user?.first_name ?? user?.email?.split('@')[0] ?? 'Admin'} 👋`}
             subtitle="Here is your dashboard overview"
+            large
           />
         </div>
 
@@ -357,25 +368,23 @@ export default function DashboardHome() {
 
           {/* ── Search + Filter + Export ── */}
           <div className="flex items-center gap-3 w-full">
-            <div className="flex-1 relative">
-              <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-              </svg>
+            <div className="relative w-full max-w-md">
+              <Image src="/Magnifer.png" alt="" width={15} height={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search by name, wallet ID or transaction ID..."
-                className="w-full pl-10 pr-4 py-2.5 text-sm bg-[#F9FAFB] border border-gray-200 rounded-xl text-gray-700 placeholder-gray-400 focus:outline-none focus:border-[#012D32] focus:ring-1 focus:ring-[#012D32]"
+                className="w-full pl-10 pr-4 py-2.5 text-sm bg-[#F8F9FA] border border-gray-200 rounded-full text-gray-700 placeholder-[#A8B0B5] focus:outline-none focus:border-[#012D32] focus:ring-1 focus:ring-[#012D32]"
                 style={FONT}
               />
             </div>
 
             {/* Today filter dropdown */}
-            <div className="relative shrink-0" ref={filterRef}>
+            <div className="relative shrink-0 ml-auto" ref={filterRef}>
               <button
                 onClick={() => setFilterOpen(p => !p)}
-                className="flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium text-gray-700 bg-[#F9FAFB] border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors whitespace-nowrap"
+                className="flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium text-gray-700 bg-[#F8F9FA] border border-gray-200 rounded-full hover:bg-gray-100 transition-colors whitespace-nowrap"
                 style={FONT}
               >
                 {selectedLabel}
@@ -402,14 +411,10 @@ export default function DashboardHome() {
             {/* Export */}
             <button
               onClick={() => exportToCSV(transactions)}
-              className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white rounded-xl transition-colors whitespace-nowrap shrink-0"
-              style={{ backgroundColor: '#009F51', ...FONT }}
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-full transition-colors whitespace-nowrap shrink-0"
+              style={{ ...FONT, backgroundColor: '#009F51', color: '#ffffff' }}
             >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="7 10 12 15 17 10"/>
-                <line x1="12" y1="15" x2="12" y2="3"/>
-              </svg>
+              <Image src="/exportIcon.png" alt="" width={15} height={15} />
               Export
             </button>
           </div>
@@ -443,7 +448,7 @@ export default function DashboardHome() {
 
           {/* ── Alert strip ── */}
           <div className="grid grid-cols-3 gap-4">
-            <div className="flex items-center gap-3 bg-white rounded-2xl border border-gray-100 px-5 py-4">
+            <div className="flex items-center gap-3 bg-white rounded-2xl border border-gray-100 px-5 h-[100px]">
               <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: '#FFE6E7' }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2">
                   <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
@@ -452,11 +457,15 @@ export default function DashboardHome() {
               </div>
               <span className="text-sm font-medium flex-1" style={{ color: '#6A7377' }}>Failed Transactions</span>
               <span className="w-6 h-6 rounded-full text-[11px] font-bold flex items-center justify-center shrink-0" style={{ backgroundColor: '#FFE6E7', color: '#EF4444' }}>
-                {overview?.alerts?.failed_transactions ?? 4}
+                {overview?.alerts?.failed_transactions ?? 0}
               </span>
-              <button className="px-4 py-1.5 text-xs font-semibold text-white rounded-xl shrink-0" style={{ backgroundColor: '#1A1D1F' }}>View</button>
+              <button
+                onClick={() => router.push('/dashboard/transactions?status=failed')}
+                className="px-4 py-1.5 text-xs font-semibold text-white rounded-xl shrink-0"
+                style={{ backgroundColor: '#012D32' }}
+              >View</button>
             </div>
-            <div className="flex items-center gap-3 bg-white rounded-2xl border border-gray-100 px-5 py-4">
+            <div className="flex items-center gap-3 bg-white rounded-2xl border border-gray-100 px-5 h-[100px]">
               <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: '#FFE6E7' }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2">
                   <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
@@ -465,11 +474,24 @@ export default function DashboardHome() {
               </div>
               <span className="text-sm font-medium flex-1" style={{ color: '#6A7377' }}>Fraud Alerts</span>
               <span className="w-6 h-6 rounded-full text-[11px] font-bold flex items-center justify-center shrink-0" style={{ backgroundColor: '#FFE6E7', color: '#EF4444' }}>
-                {overview?.alerts?.fraud_alerts ?? 4}
+                {overview?.alerts?.fraud_alerts ?? 0}
               </span>
-              <button className="px-4 py-1.5 text-xs font-semibold text-white rounded-xl shrink-0" style={{ backgroundColor: '#1A1D1F' }}>View</button>
+              <div className="relative shrink-0">
+                <button
+                  disabled
+                  title="Coming soon"
+                  className="px-4 py-1.5 text-xs font-semibold text-white rounded-xl opacity-50 cursor-not-allowed"
+                  style={{ backgroundColor: '#012D32' }}
+                >View</button>
+                <span
+                  className="absolute -top-2 -right-2 px-1.5 py-0.5 text-[9px] font-bold text-white rounded-full whitespace-nowrap"
+                  style={{ backgroundColor: '#EF4444' }}
+                >
+                  Soon
+                </span>
+              </div>
             </div>
-            <div className="bg-white rounded-2xl border border-gray-100 px-5 py-4 flex flex-col justify-center">
+            <div className="bg-white rounded-2xl border border-gray-100 px-5 h-[100px] flex flex-col justify-center">
               <p className="text-sm font-semibold mb-2" style={{ color: '#1A1D1F' }}>FX exposure summary</p>
               <div className="flex items-center gap-4">
                 {(['NGN','USD','YAN'] as const).map(cur => {
@@ -505,22 +527,31 @@ export default function DashboardHome() {
                 <div className="space-y-3 mt-4">{[...Array(4)].map((_, i) => <Skeleton key={i} h="h-14" />)}</div>
               ) : (
                 <div className="divide-y divide-gray-100">
-                  {PENDING_ACTIONS.map(item => (
-                    <div key={item.label} className="flex items-center justify-between py-3.5 cursor-pointer hover:opacity-80 transition-opacity">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center shrink-0">
-                          <Image src={item.icon} alt={item.label} width={22} height={22} className="object-contain" />
+                  {PENDING_ACTIONS.map(item => {
+                    const isFlagged = item.key === 'flagged_transactions';
+                    return (
+                      <div
+                        key={item.label}
+                        onClick={isFlagged ? undefined : () => router.push(item.href)}
+                        className={`flex items-center justify-between py-3.5 transition-opacity ${isFlagged ? '' : 'cursor-pointer hover:opacity-80'}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center shrink-0">
+                            <Image src={item.icon} alt={item.label} width={22} height={22} className="object-contain" />
+                          </div>
+                          <div>
+                            <p className="text-sm leading-tight" style={{ color: '#6A7377' }}>{item.label}</p>
+                            <p className="text-[11px] font-medium mt-0.5" style={{ color: '#1A1D1F' }}>{(overview?.pending_actions as any)?.[item.key] ?? 0} activities</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm leading-tight" style={{ color: '#6A7377' }}>{item.label}</p>
-                          <p className="text-[11px] font-medium mt-0.5" style={{ color: '#1A1D1F' }}>{(overview?.pending_actions as any)?.[item.key] ?? 0} activities</p>
-                        </div>
+                        {!isFlagged && (
+                          <svg className="text-gray-400 shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <path d="m9 18 6-6-6-6"/>
+                          </svg>
+                        )}
                       </div>
-                      <svg className="text-gray-400 shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <path d="m9 18 6-6-6-6"/>
-                      </svg>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -528,8 +559,15 @@ export default function DashboardHome() {
 
           {/* ── Recent Transactions ── */}
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100">
-              <h3 className="text-sm font-bold" style={FONT}>Recent Transactions</h3>
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 style={{ ...FONT, color: '#1A1D1F', fontWeight: 600, fontSize: 20, lineHeight: '150%', letterSpacing: '-2%' }}>Recent Transactions</h3>
+              <button
+                onClick={() => router.push('/dashboard/transactions')}
+                className="text-sm font-semibold underline"
+                style={{ color: '#009F51' }}
+              >
+                View All
+              </button>
             </div>
 
             {loadingTx ? (
@@ -540,9 +578,10 @@ export default function DashboardHome() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm" style={FONT}>
                   <thead>
-                    <tr className="bg-gray-50">
-                      {['Txn ID', 'Client Name', 'Type', 'Channel / Asset', 'Amount', 'Status', 'Date/time', 'Risk', 'Action'].map(h => (
-                        <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap first:pl-6 last:pr-6 border-b border-gray-100">
+                    <tr style={{ backgroundColor: '#F6F8FA' }}>
+                      {['Txn ID', 'Client Name', 'Type', 'Channel / Asset', 'Amount', 'Status', 'Date/time', 'Risk'].map(h => (
+                        <th key={h} className="px-4 py-3 text-left whitespace-nowrap first:pl-6 last:pr-6 border-b border-gray-100"
+                          style={{ color: '#6A7377', fontFamily: FONT.fontFamily, fontWeight: 400, fontSize: '14.67px', lineHeight: '150%', letterSpacing: '0.02em' }}>
                           {h}
                         </th>
                       ))}
@@ -552,7 +591,7 @@ export default function DashboardHome() {
                     {filteredTransactions.map((tx, idx) => (
                       <tr key={`${tx.id}-${tx.sourceType}-${tx.sourceId}`} className={`border-b border-gray-100 hover:bg-gray-50/60 transition-colors ${idx === filteredTransactions.length - 1 ? 'border-b-0' : ''}`}>
                         <td className="px-4 py-4 pl-6 whitespace-nowrap">
-                          <span className="text-xs font-medium text-gray-800 font-mono">{String(tx.id).slice(0, 10)}</span>
+                          <span style={{ ...CELL_TEXT, fontWeight: 700 }}>{String(tx.id).slice(0, 10)}</span>
                         </td>
                         <td className="px-4 py-4 whitespace-nowrap">
                           <div className="flex items-center gap-2.5">
@@ -566,23 +605,20 @@ export default function DashboardHome() {
                               </div>
                             )}
                             <div>
-                              <p className="text-sm font-medium leading-tight" style={{ color: '#1A1D1F' }}>{tx.client.name || '—'}</p>
+                              <p style={CELL_TEXT}>{tx.client.name ? toTitleCase(tx.client.name) : '—'}</p>
                               <p className="text-[11px] text-gray-400">{tx.client.changpayId ?? ''}</p>
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-4 text-sm whitespace-nowrap capitalize" style={{ color: '#1A1D1F' }}>{tx.type}</td>
-                        <td className="px-4 py-4 text-sm whitespace-nowrap max-w-[100px] truncate" style={{ color: '#1A1D1F' }}>{tx.channel || '—'}</td>
-                        <td className="px-4 py-4 text-sm font-semibold whitespace-nowrap" style={{ color: '#1A1D1F' }}>{fmtTxAmount(tx.amount, tx.currency)}</td>
+                        <td className="px-4 py-4 whitespace-nowrap capitalize" style={CELL_TEXT}>{tx.type}</td>
+                        <td className="px-4 py-4 whitespace-nowrap max-w-[100px] truncate" style={CELL_TEXT}>{tx.channel || '—'}</td>
+                        <td className="px-4 py-4 whitespace-nowrap" style={CELL_TEXT}>{fmtTxAmount(tx.amount, tx.currency)}</td>
                         <td className="px-4 py-4 whitespace-nowrap"><StatusBadge status={tx.status} /></td>
                         <td className="px-4 py-4 text-xs text-gray-500 whitespace-nowrap" style={{ color: '#1A1D1F' }}>
                           {new Date(tx.dateTime).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' })}{' '}
                           {new Date(tx.dateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase()}
                         </td>
-                        <td className="px-4 py-4 whitespace-nowrap"><RiskBadge risk={tx.risk} /></td>
-                        <td className="px-4 py-4 pr-6 whitespace-nowrap">
-                          <button className="text-xs font-semibold hover:underline" style={{ color: '#009F51' }}>View</button>
-                        </td>
+                        <td className="px-4 py-4 pr-6 whitespace-nowrap"><RiskBadge risk={tx.risk} /></td>
                       </tr>
                     ))}
                   </tbody>

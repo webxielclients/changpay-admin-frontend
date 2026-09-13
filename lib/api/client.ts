@@ -277,7 +277,7 @@ export const usersApi = {
   }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null)
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
     return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<AdminUserRecord> }>(
       `/users${query}`
@@ -317,7 +317,7 @@ export const usersApi = {
   ) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null)
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
     return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<UserTransactionItem> }>(
       `/users/${userId}/transactions${query}`
@@ -423,7 +423,7 @@ export const dashboardApi = {
   getOverview: (params?: { date_from?: string; date_to?: string; interval?: string }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null)
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
     return authedRequest<{ status: boolean; message: string; data: DashboardOverviewData }>(
       `/dashboard${query}`
@@ -437,7 +437,7 @@ export const dashboardApi = {
   }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null)
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
     return authedRequest<{ status: boolean; message: string; data: ChartData }>(
       `/dashboard/chart${query}`
@@ -677,7 +677,7 @@ export const walletApi = {
   }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null)
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
     return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<WalletRecord> }>(
       `/wallets${query}`
@@ -690,7 +690,7 @@ export const walletApi = {
   ) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null)
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
     return authedRequest<{ status: boolean; message: string; data: CurrencyWalletData }>(
       `/wallets/currency/${currency}${query}`
@@ -706,7 +706,7 @@ export const walletApi = {
   getLedger: (params?: { action?: string; date_from?: string; date_to?: string; page?: number; per_page?: number; search?: string; wallet_id?: string }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null)
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
     return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<LedgerEntry> | null }>(`/wallets/ledger${query}`);
   },
@@ -714,7 +714,7 @@ export const walletApi = {
   getTopups: (params?: { currency?: string; date_from?: string; date_to?: string; per_page?: number; provider?: string; search?: string; status?: string; page?: number }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null)
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
     return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<TopupTransaction> | null }>(`/wallets/topups${query}`);
   },
@@ -722,7 +722,7 @@ export const walletApi = {
   getSwaps: (params?: { currency?: string; date_from?: string; date_to?: string; from_currency?: string; to_currency?: string; per_page?: number; search?: string; status?: string; page?: number }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null)
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
     return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<SwapTransaction> | null }>(`/wallets/swaps${query}`);
   },
@@ -925,7 +925,7 @@ export const banksApi = {
   }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null && v !== '')
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
     return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<PayoutTransaction> | null }>(
       `/banks/payouts${query}`
@@ -940,7 +940,7 @@ export const banksApi = {
   getHandshakes: (params?: { provider?: string; status?: string; date_from?: string; date_to?: string; per_page?: number }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null && v !== '')
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
     return authedRequest<{ status: boolean; message: string; data: HandshakeRecord[] | null }>(`/banks/handshakes${query}`);
   },
@@ -1020,7 +1020,7 @@ export const kycApi = {
   }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null && v !== '')
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
     return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<AnyVerification> | null }>(
       `/verifications${query}`
@@ -1159,7 +1159,7 @@ export const promotionsApi = {
   }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null && v !== '')
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
     return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<Promotion> | null }>(
       `/promotions${query}`
@@ -1303,7 +1303,7 @@ export const rolesApi2 = {
   getAdmins: (params?: { search?: string; role?: string; page?: number }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null && v !== '')
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
     return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<AdminUserRecord2> | null }>(
       `/roles/admins${query}`
@@ -1403,7 +1403,7 @@ export const supportApi = {
   }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null && v !== '')
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
     return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<SupportTicket> | null }>(
       `/support/tickets${query}`
@@ -1450,7 +1450,7 @@ export const supportApi = {
   }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null && v !== '')
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
     return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<Dispute> | null }>(
       `/support/disputes${query}`
@@ -1507,6 +1507,7 @@ export interface SellCryptoTransaction {
   reference: number;
   id: number;
   status: string;
+  user?: { id: number; firstName: string; lastName: string; email: string; changpayId: string | null; avatarUrl?: string | null } | null;
   cryptoCurrency: string;
   cryptoNetwork: string;
   cryptoAmount: string;
@@ -1597,9 +1598,9 @@ export const transactionsApi = {
   }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null && v !== '')
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
-    return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<Transaction> | null }>(
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<Transaction> | null }>(
       `/transactions${query}`
     );
   },
@@ -1630,6 +1631,33 @@ export const transactionsApi = {
       { method: 'POST' }
     ),
 
+  markManualReview: (id: number) =>
+    authedRequest<{ status: boolean; message: string; data: Transaction }>(
+      `/transactions/${id}/manual-review`,
+      { method: 'POST' }
+    ),
+
+  downloadReceipt: async (id: number) => {
+    const storeToken = useAuthStore.getState().token;
+    const localToken = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const token = storeToken ?? localToken;
+    const res = await fetch(`${BASE_URL}/transactions/${id}/receipt`, {
+      headers: { Accept: 'application/pdf', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    const contentType = res.headers.get('content-type') ?? '';
+    if (!res.ok || contentType.includes('application/json')) {
+      // Backend returned an error body (often 200 + JSON) instead of a real PDF —
+      // surface the real message instead of silently "downloading" a corrupt file.
+      let message = `Failed to download receipt (${res.status})`;
+      try {
+        const body = await res.json();
+        if (body?.message) message = body.message;
+      } catch { /* body wasn't JSON either — keep the generic message */ }
+      throw new Error(message);
+    }
+    return res.blob();
+  },
+
   // ── Sell Crypto ──
 
   /** GET /sell-crypto */
@@ -1643,9 +1671,9 @@ export const transactionsApi = {
   }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null && v !== '')
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
-    return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<SellCryptoTransaction> | null }>(
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<SellCryptoTransaction> | null }>(
       `/sell-crypto${query}`
     );
   },
@@ -1675,9 +1703,9 @@ export const transactionsApi = {
   }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null && v !== '')
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
-    return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<PayToChinaTransaction> | null }>(
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<PayToChinaTransaction> | null }>(
       `/pay-to-china${query}`
     );
   },
@@ -1707,9 +1735,9 @@ export const transactionsApi = {
   }) => {
     const entries = Object.entries(params ?? {})
       .filter(([, v]) => v != null && v !== '')
-      .map(([k, v]) => [k, String(v)]) as [string, string][];
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
-    return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<Transaction> | null }>(
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<Transaction> | null }>(
       `/conversions${query}`
     );
   },

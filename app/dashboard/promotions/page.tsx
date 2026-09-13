@@ -1,11 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import Image from 'next/image';
 import { useAuthStore } from '@/store/authStore';
 import { promotionsApi } from '@/lib/api/client';
 import type { Promotion, PromotionStats, CreatePromotionPayload } from '@/lib/api/client';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
+
+const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif" };
 
 type TabType = 'all' | 'active' | 'scheduled' | 'expired' | 'draft' | 'paused';
 type DiscountType = 'percentage' | 'fixed' | 'cashback';
@@ -23,17 +26,21 @@ function formatDate(s: string | null | undefined) {
 
 function StatusBadge({ status }: { status: string }) {
   const s = status?.toLowerCase();
-  const styles: Record<string, string> = {
-    scheduled: 'bg-purple-100 text-purple-700 border-purple-200',
-    active:    'bg-emerald-100 text-emerald-700 border-emerald-200',
-    expired:   'bg-gray-100 text-gray-500 border-gray-200',
-    ended:     'bg-gray-100 text-gray-500 border-gray-200',
-    draft:     'bg-blue-100 text-blue-700 border-blue-200',
-    paused:    'bg-yellow-100 text-yellow-700 border-yellow-200',
+  const map: Record<string, { bg: string; text: string; border: string; label: string; capitalize: boolean }> = {
+    active:    { bg: '#ffffff', text: '#009F51', border: '#009F51', label: 'active',    capitalize: false },
+    scheduled: { bg: '#F3E8FF', text: '#9810FA', border: '#F3E8FF', label: 'Scheduled', capitalize: true },
+    expired:   { bg: '#F8F9FA', text: '#6B7280', border: '#F8F9FA', label: 'Ended',     capitalize: true },
+    ended:     { bg: '#F8F9FA', text: '#6B7280', border: '#F8F9FA', label: 'Ended',     capitalize: true },
+    draft:     { bg: '#DBEAFE', text: '#155DFC', border: '#DBEAFE', label: 'Draft',     capitalize: true },
+    paused:    { bg: '#FFFCED', text: '#FFDA44', border: '#FFFCED', label: 'Paused',    capitalize: true },
   };
+  const style = map[s] ?? { bg: '#F8F9FA', text: '#6B7280', border: '#F8F9FA', label: status, capitalize: true };
   return (
-    <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold border capitalize ${styles[s] ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}>
-      {status}
+    <span
+      className="inline-flex px-3 py-1 rounded-full text-xs font-semibold border whitespace-nowrap"
+      style={{ backgroundColor: style.bg, color: style.text, borderColor: style.border, textTransform: style.capitalize ? 'capitalize' : 'none' }}
+    >
+      {style.label}
     </span>
   );
 }
@@ -41,8 +48,8 @@ function StatusBadge({ status }: { status: string }) {
 // ─── Green checkmark badge ────────────────────────────────────────────────────
 function CheckBadge() {
   return (
-    <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center shadow-sm">
-      <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24">
+    <div className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center shadow-sm" style={{ backgroundColor: '#009F51' }}>
+      <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" strokeWidth={3} viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
       </svg>
     </div>
@@ -99,7 +106,7 @@ function PromotionModal({
     }
   };
 
-  const INPUT_CLS = "w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400 placeholder-gray-400";
+  const INPUT_CLS = "w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#009F51] placeholder-gray-400";
 
   const DISCOUNT_TYPES: { id: DiscountType; label: string; sub: string }[] = [
     { id: 'percentage', label: 'Percentage',    sub: '% off transaction' },
@@ -107,61 +114,66 @@ function PromotionModal({
     { id: 'cashback',   label: 'Cashback',      sub: 'Wallet credit' },
   ];
 
+  const LABEL_CLS = "block mb-2";
+  const LABEL_STYLE = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif", fontWeight: 400, fontSize: 16, lineHeight: '24px', letterSpacing: '0%', color: '#1A1D1F' };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-end">
+    <div className="fixed inset-0 z-50 flex items-center justify-end" style={FONT}>
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white w-full max-w-md h-full flex flex-col shadow-2xl">
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 flex-shrink-0">
-          <h2 className="text-base font-bold text-gray-900">
-            {existing ? 'Edit Promotion' : 'Create New Promotion'}
-          </h2>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
-          >
-            <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+      <div className="relative w-full max-w-md m-4">
+        {/* Close button — floating circle anchored to the modal itself */}
+        <button
+          onClick={onClose}
+          className="absolute -left-16 top-2 z-10 w-12 h-12 flex items-center justify-center bg-white hover:bg-gray-100 rounded-full transition-colors shadow-lg"
+        >
+          <svg className="w-5 h-5 text-gray-900" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
 
-        {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-xl">
-              <p className="text-sm text-red-600">{error}</p>
-            </div>
-          )}
+        <div className="bg-white max-h-[calc(100vh-2rem)] rounded-3xl overflow-y-auto shadow-2xl flex flex-col">
 
-          {/* Basic Information */}
-          <div>
-            <h3 className="text-sm font-bold text-gray-900 mb-3">Basic Information</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Campaign Name</label>
-                <input
-                  type="text" value={title} onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g valentine's day special"
-                  className={INPUT_CLS}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Description</label>
-                <textarea
-                  value={description} onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Describe what this promotion offers..."
-                  rows={3}
-                  className={`${INPUT_CLS} resize-none`}
-                />
-              </div>
-            </div>
+          {/* Header */}
+          <div className="px-6 pt-6 pb-2 flex-shrink-0">
+            <h2 className="text-2xl font-normal text-gray-900">
+              {existing ? 'Edit Promotion' : 'Create New Promotion'}
+            </h2>
           </div>
 
-          {/* Discount Type — 3 selectable cards with green checkmark when active */}
-          <div>
-            <h3 className="text-sm font-bold text-gray-900 mb-3">Discount Type</h3>
+          {/* Scrollable body */}
+          <div className="flex-1 px-6 py-5 space-y-6">
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl">
+                <p className="text-sm text-red-600">{error}</p>
+              </div>
+            )}
+
+            {/* Basic Information */}
+            <div>
+              <h3 className="text-base font-bold text-gray-900 mb-3">Basic Information</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className={LABEL_CLS} style={LABEL_STYLE}>Campaign Name</label>
+                  <input
+                    type="text" value={title} onChange={(e) => setTitle(e.target.value)}
+                    placeholder="e.g valentine's day special"
+                    className={INPUT_CLS}
+                  />
+                </div>
+                <div>
+                  <label className={LABEL_CLS} style={LABEL_STYLE}>Description</label>
+                  <textarea
+                    value={description} onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Describe what this promotion offers..."
+                    rows={3}
+                    className={`${INPUT_CLS} resize-none`}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Discount Type — 3 selectable cards with green checkmark when active */}
             <div className="grid grid-cols-3 gap-3">
               {DISCOUNT_TYPES.map(({ id, label, sub }) => {
                 const selected = discountType === id;
@@ -169,111 +181,110 @@ function PromotionModal({
                   <button
                     key={id}
                     onClick={() => setDiscountType(id)}
-                    className={`relative p-3 rounded-xl border-2 text-center transition-all ${
-                      selected
-                        ? 'border-emerald-500 bg-emerald-50'
-                        : 'border-gray-200 hover:border-gray-300 bg-white'
-                    }`}
+                    className="relative p-3 rounded-xl border-2 text-center transition-all"
+                    style={selected ? { borderColor: '#009F51', backgroundColor: '#F5FCF7' } : { borderColor: '#F8F9FA', backgroundColor: '#F8F9FA' }}
                   >
                     {/* Green checkmark badge when selected */}
                     {selected && <CheckBadge />}
-                    <p className="text-sm font-semibold text-gray-900 mb-0.5">{label}</p>
+                    <p className="text-sm font-semibold text-gray-900 mb-0.5 pr-3">{label}</p>
                     <p className="text-xs text-gray-500">{sub}</p>
                   </button>
                 );
               })}
             </div>
-          </div>
 
-          {/* Discount Details */}
-          <div>
-            <h3 className="text-sm font-bold text-gray-900 mb-3">Discount Details</h3>
-            <div className="grid grid-cols-2 gap-3">
-              {([
-                { label: 'Discount Value',       val: discountValue, set: setDiscountValue, ph: 'e.g. 20' },
-                { label: 'Max Discount Cap',     val: maxDiscount,   set: setMaxDiscount,   ph: 'e.g. 50' },
-                { label: 'Minimum Transaction',  val: minOrder,      set: setMinOrder,      ph: 'e.g. 100' },
-                { label: 'Usage Limit',          val: usageLimit,    set: setUsageLimit,    ph: 'e.g. 50' },
-              ] as { label: string; val: string | number; set: (v: string) => void; ph: string }[]).map(({ label, val, set, ph }) => (
-                <div key={label}>
-                  <label className="block text-xs font-medium text-gray-600 mb-1.5">{label}</label>
-                  <input
-                    type="number" value={val} onChange={(e) => set(e.target.value)}
-                    placeholder={ph}
-                    className={INPUT_CLS}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Campaign Duration */}
-          <div>
-            <h3 className="text-sm font-bold text-gray-900 mb-3">Campaign Duration</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Start Date</label>
-                <div className="relative">
-                  <input
-                    type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-                    className={INPUT_CLS}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">End Date</label>
-                <div className="relative">
-                  <input
-                    type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-                    className={INPUT_CLS}
-                  />
-                </div>
+            {/* Discount Details */}
+            <div>
+              <h3 className="text-base font-bold text-gray-900 mb-3">Discount Details</h3>
+              <div className="grid grid-cols-2 gap-3">
+                {([
+                  { label: 'Discount Value',       val: discountValue, set: setDiscountValue, ph: 'e.g. 20' },
+                  { label: 'Max Discount Cap',     val: maxDiscount,   set: setMaxDiscount,   ph: 'e.g. 50' },
+                  { label: 'Minimum Transaction',  val: minOrder,      set: setMinOrder,      ph: 'e.g. 100' },
+                  { label: 'Usage Limit',          val: usageLimit,    set: setUsageLimit,    ph: 'e.g. 50' },
+                ] as { label: string; val: string | number; set: (v: string) => void; ph: string }[]).map(({ label, val, set, ph }) => (
+                  <div key={label}>
+                    <label className={LABEL_CLS} style={LABEL_STYLE}>{label}</label>
+                    <input
+                      type="number" value={val} onChange={(e) => set(e.target.value)}
+                      placeholder={ph}
+                      className={INPUT_CLS}
+                    />
+                  </div>
+                ))}
               </div>
             </div>
+
+            {/* Campaign Duration */}
+            <div>
+              <h3 className="text-base font-bold text-gray-900 mb-3">Campaign Duration</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={LABEL_CLS} style={LABEL_STYLE}>Start Date</label>
+                  <div className="relative">
+                    <Image src="/cal.png" alt="" width={16} height={16} className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
+                      className={`${INPUT_CLS} pl-10`}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className={LABEL_CLS} style={LABEL_STYLE}>End Date</label>
+                  <div className="relative">
+                    <Image src="/cal.png" alt="" width={16} height={16} className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
+                      className={`${INPUT_CLS} pl-10`}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Banner Upload */}
+            {bannerFile ? (
+              <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">{bannerFile.name}</p>
+                  <p className="text-xs text-gray-400">{(bannerFile.size / 1024).toFixed(1)} KB</p>
+                </div>
+                <button onClick={() => setBannerFile(null)} className="text-gray-400 hover:text-gray-600">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ) : (
+              <label className="block border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-[#009F51] hover:bg-[#F5FCF7] transition-colors">
+                <input type="file" accept=".pdf,.jpg,.png" onChange={(e) => setBannerFile(e.target.files?.[0] ?? null)} className="hidden" />
+                <div className="w-10 h-10 rounded-full flex items-center justify-center mx-auto mb-3" style={{ backgroundColor: '#E1F7EB' }}>
+                  <svg className="w-5 h-5" style={{ color: '#009F51' }} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                  </svg>
+                </div>
+                <p className="text-sm font-semibold text-gray-700 mb-0.5">Choose a file</p>
+                <p className="text-xs text-gray-400">PDF, JPG, PNG · Max size: 3MB</p>
+              </label>
+            )}
           </div>
 
-          {/* Banner Upload */}
-          {bannerFile ? (
-            <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-gray-900">{bannerFile.name}</p>
-                <p className="text-xs text-gray-400">{(bannerFile.size / 1024).toFixed(1)} KB</p>
-              </div>
-              <button onClick={() => setBannerFile(null)} className="text-gray-400 hover:text-gray-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          ) : (
-            <label className="block border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-emerald-400 hover:bg-emerald-50/40 transition-colors">
-              <input type="file" accept=".pdf,.jpg,.png" onChange={(e) => setBannerFile(e.target.files?.[0] ?? null)} className="hidden" />
-              <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-3">
-                <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                </svg>
-              </div>
-              <p className="text-sm font-semibold text-gray-700 mb-0.5">Choose a file</p>
-              <p className="text-xs text-gray-400">PDF, JPG, PNG · Max size: 3MB</p>
-            </label>
-          )}
-        </div>
-
-        {/* Footer actions */}
-        <div className="px-6 py-5 border-t border-gray-100 flex-shrink-0 space-y-3">
-          <button
-            onClick={onClose}
-            className="w-full py-3 border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors"
-          >
-            Close
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="w-full py-3 bg-emerald-500 text-white rounded-xl text-sm font-bold hover:bg-emerald-600 disabled:opacity-50 transition-colors"
-          >
-            {saving ? 'Saving...' : existing ? 'Update Promotion' : 'Create New Promotion'}
-          </button>
+          {/* Footer actions */}
+          <div className="px-6 py-5 border-t border-gray-100 flex-shrink-0 space-y-3">
+            <button
+              onClick={onClose}
+              className="w-full py-3 border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors"
+            >
+              Close
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="w-full py-3 text-white rounded-xl text-sm font-bold disabled:opacity-50 transition-colors" style={{ backgroundColor: '#009F51' }}
+            >
+              {saving ? 'Saving...' : existing ? 'Update Promotion' : 'Create New Promotion'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -312,10 +323,21 @@ export default function PromotionsPage() {
   const fetchPromotions = useCallback(async (page: number, tab: TabType, search: string) => {
     try {
       setIsLoading(true); setError(null);
-      const res = await promotionsApi.getAll({ page, per_page: 12, status: tab !== 'all' ? tab : undefined, search: search || undefined });
+      // 'scheduled' isn't a real backend status (PromotionStats only tracks
+      // active/draft/expired/paused) — it means "active, but hasn't started yet",
+      // so it's derived client-side from startDate rather than sent as a filter.
+      const backendStatus = tab === 'all' || tab === 'scheduled' ? undefined : tab;
+      const res = await promotionsApi.getAll({ page, per_page: 12, status: backendStatus, search: search || undefined });
       if (res.status) {
         const d = res.data as any;
-        if (d && 'data' in d) { setPromotions(d.data ?? []); setPagination({ total: d.total, last_page: d.last_page, from: d.from, to: d.to }); }
+        if (d && 'data' in d) {
+          const rows: Promotion[] = d.data ?? [];
+          const filtered = tab === 'scheduled'
+            ? rows.filter((p) => p.startDate && new Date(p.startDate) > new Date())
+            : rows;
+          setPromotions(filtered);
+          setPagination({ total: tab === 'scheduled' ? filtered.length : d.total, last_page: d.last_page, from: d.from, to: d.to });
+        }
         else setPromotions([]);
       }
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to load promotions'); }
@@ -366,29 +388,43 @@ export default function PromotionsPage() {
   ];
 
   return (
-    <div className="flex h-screen bg-[#F8F9FA] font-['DM_Sans',sans-serif]">
+    <div className="flex h-screen bg-white" style={FONT}>
       <Sidebar />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
         {/* Header */}
         <div className="bg-white border-b border-gray-200 px-8 py-5 flex-shrink-0">
-          <DashboardHeader title="Promotions" subtitle="Create and manage promotional campaigns" />
+          <DashboardHeader
+            title="Promotions"
+            subtitle="Create and manage promotional campaigns"
+            large
+            actions={
+              <button
+                onClick={() => { setEditingPromo(null); setModalOpen(true); }}
+                className="flex items-center justify-center transition-colors whitespace-nowrap"
+                style={{ ...FONT, gap: 8, borderRadius: 200, padding: '12px 24px', backgroundColor: '#009F51', color: '#ffffff', fontWeight: 600, fontSize: 16 }}
+              >
+                <Image src="/circleadd.png" alt="" width={20} height={20} />
+                Create New Promotion
+              </button>
+            }
+          />
         </div>
 
         {/* Stats row */}
         <div className="bg-white border-b border-gray-100 px-8 py-5 flex-shrink-0">
           <div className="grid grid-cols-4 gap-6">
             {([
-              { label: 'Active Campaigns',  value: loadingStats ? null : stats?.active,                                                     color: 'text-gray-900' },
-              { label: 'Total Redemptions', value: loadingStats ? null : stats?.total,                                                      color: 'text-emerald-600' },
-              { label: 'Revenue Impact',    value: loadingStats ? null : stats ? `$${((stats as any).revenue_impact ?? 0).toLocaleString()}` : null, color: 'text-emerald-600' },
-              { label: 'Avg. Discount',     value: loadingStats ? null : stats ? `${(stats as any).avg_discount ?? 0}%` : null,              color: 'text-purple-600' },
+              { label: 'Active Campaigns',  value: loadingStats ? null : stats?.active,                                                     color: '#1A1D1F' },
+              { label: 'Total Redemptions', value: loadingStats ? null : stats?.total,                                                      color: '#0274D8' },
+              { label: 'Revenue Impact',    value: loadingStats ? null : stats ? `$${((stats as any).revenue_impact ?? 0).toLocaleString()}` : null, color: '#009F51' },
+              { label: 'Avg. Discount',     value: loadingStats ? null : stats ? `${(stats as any).avg_discount ?? 0}%` : null,              color: '#9810FA' },
             ] as { label: string; value: string | number | null; color: string }[]).map((s) => (
-              <div key={s.label}>
-                <p className="text-xs text-gray-500 mb-1.5">{s.label}</p>
+              <div key={s.label} className="rounded-xl p-5" style={{ backgroundColor: '#F8F9FA' }}>
+                <p className="text-sm text-gray-500 mb-1.5">{s.label}</p>
                 {loadingStats ? <Skeleton className="h-9 w-20" /> : (
-                  <p className={`text-3xl font-bold ${s.color}`}>{s.value ?? '—'}</p>
+                  <p className="text-3xl font-bold" style={{ color: s.color }}>{s.value ?? '—'}</p>
                 )}
               </div>
             ))}
@@ -403,17 +439,16 @@ export default function PromotionsPage() {
               <button
                 key={tab.id}
                 onClick={() => handleTabChange(tab.id)}
-                className={`relative flex-1 py-4 text-sm font-medium text-center transition-colors whitespace-nowrap ${
-                  activeTab === tab.id ? 'text-emerald-600' : 'text-gray-500 hover:text-gray-700'
-                }`}
+                className="relative flex-1 py-4 text-sm font-medium text-center transition-colors whitespace-nowrap"
+                style={{ color: activeTab === tab.id ? '#009F51' : '#6B7280' }}
               >
                 {tab.label}
-                {activeTab === tab.id && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500" />}
+                {activeTab === tab.id && <span className="absolute bottom-0 left-0 right-0 h-0.5" style={{ backgroundColor: '#009F51' }} />}
               </button>
             ))}
           </div>
 
-          {/* Filter row — full width, search + dropdowns + Create button */}
+          {/* Filter row — search + dropdowns */}
           <div className="flex items-center gap-3 px-6 py-3 w-full">
             {/* Search — takes remaining space */}
             <div className="relative flex-1">
@@ -423,14 +458,16 @@ export default function PromotionsPage() {
               <input
                 type="text" value={searchQuery} onChange={(e) => handleSearchChange(e.target.value)}
                 placeholder="Search by campaign name or promo code"
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-full text-sm text-gray-700 placeholder-gray-400 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-full text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#009F51]"
+                style={{ backgroundColor: '#F8F9FA' }}
               />
             </div>
 
             {/* All Status */}
             <div className="relative flex-shrink-0">
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-                className="appearance-none bg-white border border-gray-200 rounded-full pl-4 pr-8 py-2.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer">
+                className="appearance-none border border-gray-200 rounded-full pl-4 pr-8 py-2.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-[#009F51] cursor-pointer"
+                style={{ backgroundColor: '#F8F9FA' }}>
                 <option value="">All Status</option>
                 <option value="active">Active</option>
                 <option value="scheduled">Scheduled</option>
@@ -444,7 +481,8 @@ export default function PromotionsPage() {
             {/* All Type */}
             <div className="relative flex-shrink-0">
               <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
-                className="appearance-none bg-white border border-gray-200 rounded-full pl-4 pr-8 py-2.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer">
+                className="appearance-none border border-gray-200 rounded-full pl-4 pr-8 py-2.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-[#009F51] cursor-pointer"
+                style={{ backgroundColor: '#F8F9FA' }}>
                 <option value="">All Type</option>
                 <option value="percentage">Percentage</option>
                 <option value="fixed">Fixed Amount</option>
@@ -456,24 +494,14 @@ export default function PromotionsPage() {
             {/* Sort by: Newest */}
             <div className="relative flex-shrink-0">
               <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}
-                className="appearance-none bg-white border border-gray-200 rounded-full pl-4 pr-8 py-2.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer">
+                className="appearance-none border border-gray-200 rounded-full pl-4 pr-8 py-2.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-[#009F51] cursor-pointer"
+                style={{ backgroundColor: '#F8F9FA' }}>
                 <option value="newest">Sort by: Newest</option>
                 <option value="oldest">Sort by: Oldest</option>
                 <option value="discount">Sort by: Discount</option>
               </select>
               <svg className="w-4 h-4 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
             </div>
-
-            {/* Create New Promotion — rightmost in this row */}
-            <button
-              onClick={() => { setEditingPromo(null); setModalOpen(true); }}
-              className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors flex-shrink-0"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-              Create New Promotion
-            </button>
           </div>
         </div>
 
@@ -490,10 +518,10 @@ export default function PromotionsPage() {
               {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-80" />)}
             </div>
           ) : promotions.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-gray-200 p-16 text-center">
+            <div className="bg-white rounded-xl border border-gray-200 p-16 text-center">
               <p className="text-gray-400 text-sm mb-4">No promotions found</p>
               <button onClick={() => { setEditingPromo(null); setModalOpen(true); }}
-                className="px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600">
+                className="px-5 py-2.5 text-white rounded-full text-sm font-semibold" style={{ backgroundColor: '#009F51' }}>
                 Create First Promotion
               </button>
             </div>
@@ -502,9 +530,9 @@ export default function PromotionsPage() {
               {promotions.map((promo) => {
                 const usagePct = promo.usageLimit ? Math.round((promo.usageCount / promo.usageLimit) * 100) : 0;
                 return (
-                  <div key={promo.id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                  <div key={promo.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                     {/* Banner */}
-                    <div className="h-36 relative overflow-hidden">
+                    <div className="h-48 relative overflow-hidden">
                       {promo.bannerImage ? (
                         <img src={promo.bannerImage} alt={promo.title} className="w-full h-full object-cover" />
                       ) : (
@@ -515,27 +543,31 @@ export default function PromotionsPage() {
                     </div>
 
                     <div className="p-5">
-                      {/* Title + status + code */}
-                      <div className="flex items-start justify-between mb-1">
-                        <h3 className="text-sm font-bold text-gray-900">{promo.title}</h3>
+                      {/* Title + status */}
+                      <div className="flex items-start justify-between mb-2">
+                        <h3 className="text-lg font-bold text-gray-900">{promo.title}</h3>
                         <StatusBadge status={promo.status} />
                       </div>
-                      {promo.code && <p className="text-xs text-gray-400 font-mono mb-3">{promo.code}</p>}
+                      {promo.code && (
+                        <p className="inline-block text-sm text-gray-400 font-mono mb-3 rounded-lg px-3 py-1.5" style={{ backgroundColor: '#F8F9FA' }}>
+                          {promo.code}
+                        </p>
+                      )}
 
                       {promo.description && (
-                        <p className="text-xs text-gray-500 mb-4 line-clamp-2">{promo.description}</p>
+                        <p className="text-sm text-gray-500 mb-4 line-clamp-2">{promo.description}</p>
                       )}
 
                       {/* Details grid */}
-                      <div className="grid grid-cols-2 gap-y-3 gap-x-4 mb-4 text-xs">
+                      <div className="grid grid-cols-2 gap-y-3 gap-x-4 mb-4 text-sm">
                         <div><p className="text-gray-400 mb-0.5">Discount</p><p className="font-bold text-gray-900">{promo.discountValue}{promo.type === 'percentage' ? '%' : ''}</p></div>
                         <div><p className="text-gray-400 mb-0.5">Type</p><p className="font-bold text-gray-900 capitalize">{promo.type === 'percentage' ? 'Percentage' : promo.type === 'fixed' ? 'Fixed Amount' : 'Cashback'}</p></div>
                         <div><p className="text-gray-400 mb-0.5">Start Date</p><p className="font-medium text-gray-900">{formatDate(promo.startDate)}</p></div>
                         <div><p className="text-gray-400 mb-0.5">End Date</p><p className="font-medium text-gray-900">{formatDate(promo.endDate)}</p></div>
                       </div>
 
-                      {/* Redemptions + Revenue — green tinted box */}
-                      <div className="bg-emerald-50 rounded-xl px-4 py-3 grid grid-cols-2 gap-4 mb-4 text-xs">
+                      {/* Redemptions + Revenue — light green box */}
+                      <div className="rounded-xl px-4 py-3 grid grid-cols-2 gap-4 mb-4 text-xs" style={{ backgroundColor: '#F5FCF7' }}>
                         <div>
                           <p className="text-gray-500 mb-0.5">Redemptions</p>
                           <p className="text-base font-bold text-gray-900">{promo.usageCount?.toLocaleString() ?? '—'}</p>
@@ -554,7 +586,7 @@ export default function PromotionsPage() {
                             <span className="text-xs font-bold text-gray-700">{usagePct}%</span>
                           </div>
                           <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full ${usagePct >= 90 ? 'bg-red-500' : 'bg-emerald-500'}`} style={{ width: `${usagePct}%` }} />
+                            <div className="h-full rounded-full" style={{ width: `${usagePct}%`, backgroundColor: usagePct >= 90 ? '#FF756B' : '#009F51' }} />
                           </div>
                         </div>
                       )}
@@ -573,7 +605,8 @@ export default function PromotionsPage() {
                         <button
                           onClick={() => handleDelete(promo)}
                           disabled={deletingId === promo.id}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 border border-red-200 text-red-400 rounded-xl text-xs font-semibold hover:bg-red-50 transition-colors disabled:opacity-50"
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50"
+                          style={{ border: '1px solid #FF756B33', color: '#FF756B' }}
                         >
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z" />
@@ -598,7 +631,8 @@ export default function PromotionsPage() {
                 </button>
                 {pageNumbers.map((p) => (
                   <button key={p} onClick={() => setCurrentPage(p)}
-                    className={`w-7 h-7 flex items-center justify-center rounded-lg text-xs font-medium transition-colors ${currentPage === p ? 'bg-emerald-500 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                    className="w-7 h-7 flex items-center justify-center rounded-lg text-xs font-medium transition-colors"
+                    style={currentPage === p ? { backgroundColor: '#009F51', color: '#ffffff' } : { border: '1px solid #E5E7EB', color: '#4B5563' }}>
                     {p}
                   </button>
                 ))}

@@ -1,13 +1,29 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import Image from 'next/image';
 import { useAuthStore } from '@/store/authStore';
 import { rolesApi2 } from '@/lib/api/client';
 import type { RoleRecord, Permission, PermissionGroup, AdminUserRecord2 } from '@/lib/api/client';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
 
+const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif" };
+
 type MainTab = 'roles' | 'permissions' | 'admin-user';
+
+function CreateRoleButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center justify-center transition-colors hover:opacity-90"
+      style={{ ...FONT, width: 157, height: 48, gap: 8, borderRadius: 200, padding: 12, backgroundColor: '#009F51', color: '#ffffff', fontWeight: 600, fontSize: 14 }}
+    >
+      <Image src="/createrole.png" alt="" width={18} height={18} />
+      Create Role
+    </button>
+  );
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function Skeleton({ className }: { className?: string }) {
@@ -404,7 +420,7 @@ export default function RolesPermissionsPage() {
   ];
 
   return (
-    <div className="flex h-screen bg-[#F8F9FA] font-['DM_Sans',sans-serif]">
+    <div className="flex h-screen bg-white" style={FONT}>
       <Sidebar />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -413,6 +429,7 @@ export default function RolesPermissionsPage() {
           <DashboardHeader
             title="Roles & Permissions"
             subtitle="Manage admin roles, permissions, and user assignments"
+            large
           />
         </div>
 
@@ -423,13 +440,12 @@ export default function RolesPermissionsPage() {
               <button
                 key={tab.id}
                 onClick={() => setMainTab(tab.id)}
-                className={`relative flex-1 py-4 text-sm font-medium text-center transition-colors ${
-                  mainTab === tab.id ? 'text-emerald-600' : 'text-gray-500 hover:text-gray-700'
-                }`}
+                className="relative flex-1 py-4 text-sm font-medium text-center transition-colors"
+                style={{ color: mainTab === tab.id ? '#009F51' : '#6B7280' }}
               >
                 {tab.label}
                 {mainTab === tab.id && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500" />
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5" style={{ backgroundColor: '#009F51' }} />
                 )}
               </button>
             ))}
@@ -450,18 +466,10 @@ export default function RolesPermissionsPage() {
               {/* Heading + Create Role */}
               <div className="flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-bold text-emerald-600">Roles Management</h2>
+                  <h2 style={{ ...FONT, fontWeight: 600, fontSize: 24, lineHeight: '120%', letterSpacing: '-1%', color: '#009F51' }}>Roles Management</h2>
                   <p className="text-sm text-gray-500 mt-0.5">Create and manage admin roles with specific permissions</p>
                 </div>
-                <button
-                  onClick={() => { setEditingRole(null); setRoleModal(true); }}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                  </svg>
-                  Create Role
-                </button>
+                <CreateRoleButton onClick={() => { setEditingRole(null); setRoleModal(true); }} />
               </div>
 
               {/* Stat cards */}
@@ -472,7 +480,7 @@ export default function RolesPermissionsPage() {
                   { label: 'Total Admins',  value: totalAdmins,   color: 'text-blue-600' },
                   { label: 'System Roles',  value: systemRoles,   color: 'text-gray-900' },
                 ].map((s) => (
-                  <div key={s.label} className="bg-white rounded-2xl border border-gray-200 p-5">
+                  <div key={s.label} className="rounded-xl p-5" style={{ backgroundColor: '#F8F9FA' }}>
                     <p className="text-xs text-gray-500 mb-2">{s.label}</p>
                     {loadingRoles ? <Skeleton className="h-9 w-12" /> : (
                       <p className={`text-3xl font-bold ${s.color}`}>{s.value}</p>
@@ -487,7 +495,7 @@ export default function RolesPermissionsPage() {
                   {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-64" />)}
                 </div>
               ) : roles.length === 0 ? (
-                <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
+                <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
                   <p className="text-gray-400 text-sm">No roles found</p>
                 </div>
               ) : (
@@ -495,7 +503,7 @@ export default function RolesPermissionsPage() {
                   {roles.map((role) => {
                     const isSuspended = suspendMap[role.id] ?? false;
                     return (
-                      <div key={role.id} className="bg-white rounded-2xl border border-gray-200 p-6">
+                      <div key={role.id} className="bg-white rounded-xl border border-gray-200 p-6">
                         {/* Card header */}
                         <div className="flex items-start justify-between mb-3">
                           <div className="flex items-center gap-3">
@@ -506,7 +514,10 @@ export default function RolesPermissionsPage() {
                             </div>
                           </div>
                           {role.isSystem ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border border-gray-200 text-gray-500">
+                            <span
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold"
+                              style={{ backgroundColor: '#A585E81A', color: '#A585E8' }}
+                            >
                               <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
                               </svg>
@@ -519,7 +530,7 @@ export default function RolesPermissionsPage() {
                           )}
                         </div>
 
-                        <p className="text-sm text-gray-500 mb-4">{role.description || '—'}</p>
+                        <p style={{ ...FONT, fontWeight: 400, fontSize: 16, lineHeight: '24px', letterSpacing: '0%', color: '#6A7377' }} className="mb-4">{role.description || '—'}</p>
 
                         {/* Details */}
                         <div className="space-y-2 mb-4">
@@ -551,7 +562,8 @@ export default function RolesPermissionsPage() {
                         <div className="flex gap-3">
                           <button
                             onClick={() => { setEditingRole(role); setRoleModal(true); }}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-semibold transition-colors"
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-white rounded-xl text-sm font-semibold transition-colors hover:opacity-90"
+                            style={{ backgroundColor: '#009F51' }}
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
@@ -564,9 +576,7 @@ export default function RolesPermissionsPage() {
                               disabled={deletingId === role.id}
                               className="w-11 h-10 flex items-center justify-center border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-50 transition-colors"
                             >
-                              <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                              </svg>
+                              <Image src="/delred.png" alt="Delete" width={18} height={18} />
                             </button>
                           )}
                         </div>
@@ -586,17 +596,7 @@ export default function RolesPermissionsPage() {
                   <h2 className="text-xl font-bold" style={{ color: '#009F51' }}>All Permissions</h2>
                   <p className="text-sm text-gray-500 mt-0.5">Complete list of available system permissions</p>
                 </div>
-                <button
-                  onClick={() => { setEditingRole(null); setRoleModal(true); }}
-                  className="flex items-center gap-2 px-5 py-2.5 text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
-                  style={{ backgroundColor: '#009F51' }}
-                >
-                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                    <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
-                    <path d="M19 3v6M16 6h6" strokeWidth={2.5}/>
-                  </svg>
-                  Create Role
-                </button>
+                <CreateRoleButton onClick={() => { setEditingRole(null); setRoleModal(true); }} />
               </div>
 
               {loadingPerms ? (
@@ -643,17 +643,7 @@ export default function RolesPermissionsPage() {
                   <h2 className="text-xl font-bold" style={{ color: '#009F51' }}>Admin Users</h2>
                   <p className="text-sm text-gray-500 mt-0.5">Manage admin users and their role assignments</p>
                 </div>
-                <button
-                  onClick={() => { setEditingRole(null); setRoleModal(true); }}
-                  className="flex items-center gap-2 px-5 py-2.5 text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
-                  style={{ backgroundColor: '#009F51' }}
-                >
-                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                    <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
-                    <path d="M19 3v6M16 6h6" strokeWidth={2.5}/>
-                  </svg>
-                  Create Role
-                </button>
+                <CreateRoleButton onClick={() => { setEditingRole(null); setRoleModal(true); }} />
               </div>
 
               {/* Search */}

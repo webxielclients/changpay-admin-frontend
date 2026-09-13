@@ -6,10 +6,13 @@ import { walletApi } from '@/lib/api/client';
 import type { WalletStats, WalletRecord, CurrencyWalletData, ReconciliationStatus, TopupTransaction, SwapTransaction, LedgerEntry } from '@/lib/api/client';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
+import Image from 'next/image';
 
 type MainTab      = 'overview' | 'currency-wallets' | 'ledger' | 'reconciliation';
 type CwSubTab     = 'wallets' | 'topup' | 'swap';
 type CurrencyType = 'USD' | 'NGN' | 'YAN';
+
+const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif" };
 
 
 interface RecentActivityItem {
@@ -28,12 +31,43 @@ function fmtDate(s?: string | null) {
   return new Date(s).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
-// ─── Skeleton ──────────────────────────────────────────────────────────────────
+function fmtDateExact(s?: string | null) {
+  if (!s) return '—';
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return '—';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase().replace(' ', '');
+  return `${y}-${m}-${day} ${time}`;
+}
+
+function timeAgo(s?: string | null): string {
+  if (!s) return '';
+  const diff = Date.now() - new Date(s).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins} min${mins === 1 ? '' : 's'} ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
+  return `${Math.floor(days / 30)} month${Math.floor(days / 30) === 1 ? '' : 's'} ago`;
+}
+
+function TimestampCell({ date }: { date?: string | null }) {
+  return (
+    <div>
+      <p className="whitespace-nowrap" style={{ ...FONT, color: '#1A1D1F', fontWeight: 500, fontSize: 12, lineHeight: '150%', letterSpacing: '0.01em' }}>{fmtDateExact(date)}</p>
+      <p className="whitespace-nowrap" style={{ ...FONT, color: '#6A7377', fontWeight: 400, fontSize: 14, lineHeight: '150%', letterSpacing: '0.02em' }}>{timeAgo(date)}</p>
+    </div>
+  );
+}
+
 function Skeleton({ className }: { className?: string }) {
   return <div className={`animate-pulse bg-gray-200 rounded-lg ${className ?? ''}`} />;
 }
 
-// ─── Currency helpers ─────────────────────────────────────────────────────────
 function currencySymbol(c: CurrencyType | string): string {
   if (c === 'USD') return '$';
   if (c === 'NGN') return '₦';
@@ -59,19 +93,15 @@ function StatusBadge({ isLocked, isActive }: { isLocked: boolean; isActive: bool
   if (isLocked) {
     return (
       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border border-gray-200 text-gray-500 bg-white">
-        <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-        </svg>
+        <Image src="/Icon.png" alt="" width={11} height={11} />
         Frozen
       </span>
     );
   }
   if (isActive) {
     return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border border-gray-200 text-gray-700 bg-white">
-        <svg className="w-3 h-3 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-        </svg>
+      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border bg-white" style={{ borderColor: '#0274D8', color: '#0274D8' }}>
+        <Image src="/Unlock.png" alt="" width={11} height={11} />
         Active
       </span>
     );
@@ -108,13 +138,14 @@ function UserCell({ name, email, initials }: { name: string; email?: string; ini
   const nameStr = typeof name === 'string' ? name : '';
   const color   = COLORS[nameStr.length > 0 ? nameStr.charCodeAt(0) % COLORS.length : 0];
   const display = initials ?? (nameStr.length >= 2 ? nameStr.slice(0, 2).toUpperCase() : nameStr.toUpperCase() || 'U');
+  const titleCased = nameStr.toLowerCase().replace(/(^|\s|-)\S/g, (c) => c.toUpperCase());
   return (
     <div className="flex items-center gap-2.5 min-w-0">
       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${color}`}>
         {display}
       </div>
       <div className="min-w-0">
-        <p className="text-sm font-medium text-gray-900 truncate">{nameStr || '—'}</p>
+        <p className="truncate" style={{ ...FONT, color: '#1A1D1F', fontWeight: 500, fontSize: '14.67px', lineHeight: '150%', letterSpacing: '0.02em' }}>{titleCased || '—'}</p>
         {email && <p className="text-xs text-gray-400 truncate">{email}</p>}
       </div>
     </div>
@@ -123,44 +154,61 @@ function UserCell({ name, email, initials }: { name: string; email?: string; ini
 
 // ─── Direction icons ───────────────────────────────────────────────────────────
 function CreditIcon() {
-  return (
-    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
-      <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
-      </svg>
-    </div>
-  );
+  return <img src="/iconup.svg" alt="" className="w-8 h-8 flex-shrink-0" />;
 }
 function DebitIcon() {
-  return (
-    <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-      <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 13.5L12 21m0 0l-7.5-7.5M12 21V3" />
-      </svg>
-    </div>
-  );
+  return <img src="/icondwn.svg" alt="" className="w-8 h-8 flex-shrink-0" />;
+}
+function TransferIcon() {
+  return <img src="/iconupp.svg" alt="" className="w-8 h-8 flex-shrink-0" />;
 }
 
-// ─── Search bar ───────────────────────────────────────────────────────────────
+// ─── Ledger row helpers ─────────────────────────────────────────────────────────
+function ledgerDescription(row: LedgerEntry): string {
+  const type = (row.transaction.type ?? '').toLowerCase();
+  const isCredit = row.action === 'credit' || row.action === 'release';
+  const map: Record<string, string> = {
+    topup: 'Bank transfer deposit',
+    deposit: 'Bank transfer deposit',
+    withdrawal: 'Withdrawal to bank',
+    swap: 'Currency swap',
+    conversion: 'Currency conversion',
+    transfer: isCredit ? 'Transfer in' : 'Transfer out',
+    adjustment: 'Admin adjustment',
+  };
+  if (map[type]) return map[type];
+  return type ? `${type.charAt(0).toUpperCase()}${type.slice(1)}` : (isCredit ? 'Credit' : 'Debit');
+}
+
+function LedgerTypeIcon({ action, type }: { action: LedgerEntry['action']; type: string }) {
+  const isTransferLike = ['transfer', 'adjustment'].includes((type ?? '').toLowerCase());
+  const isCredit = action === 'credit' || action === 'release';
+  if (isTransferLike) return <TransferIcon />;
+  return isCredit ? <CreditIcon /> : <DebitIcon />;
+}
+
+
 function SearchBar({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
-    <div className="relative flex-1">
+    <div className="relative shrink-0" style={{ width: 740 }}>
       <svg className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
       </svg>
       <input
         type="text" value={value} onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-full text-sm text-gray-700 placeholder-gray-400 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400"
+        className="w-full pl-10 pr-4 border rounded-full text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+        style={{ backgroundColor: '#F8F9FA', borderColor: '#E1E4E6', height: 48, borderWidth: 1, borderRadius: 70 }}
       />
     </div>
   );
 }
 
-// ─── Export button ────────────────────────────────────────────────────────────
+
 function ExportBtn({ onClick }: { onClick?: () => void }) {
   return (
-    <button onClick={onClick} className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-medium hover:bg-emerald-600 transition-colors flex-shrink-0">
+    <button onClick={onClick} className="flex items-center gap-2 px-5 text-white rounded-full text-sm font-medium transition-colors flex-shrink-0"
+      style={{ backgroundColor: '#009F51', height: 48 }}>
       <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
       </svg>
@@ -183,7 +231,8 @@ function StatusFilter({ value, onChange }: { value: string; onChange: (v: string
   return (
     <div className="relative flex-shrink-0">
       <select value={value} onChange={(e) => onChange(e.target.value)}
-        className="appearance-none bg-white border border-gray-200 rounded-lg pl-3 pr-8 py-2.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer">
+        className="appearance-none border pl-3 pr-8 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
+        style={{ backgroundColor: '#F8F9FA', borderColor: '#E1E4E6', width: 172, height: 48, borderWidth: 1, borderRadius: 100 }}>
         {['All Status', 'Processing', 'Failed', 'Completed'].map((s) => <option key={s}>{s}</option>)}
       </select>
       <svg className="w-4 h-4 text-gray-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
@@ -230,25 +279,73 @@ function Pagination({ currentPage, totalPages, onChange, loading, from, to, tota
 }
 
 
-function buildMockWallets(currency: CurrencyType): WalletRecord[] {
-  const prefix = currency === 'USD' ? 'USD' : currency === 'NGN' ? 'NGN' : 'RMB';
-  return Array.from({ length: 6 }, (_, i) => ({
-    id: `${prefix}00${i + 1}`,
-    currency,
-    balance: '15420.50',
-    availableBalance: '15420.50',
-    isLocked: i === 1 || i === 2,
-    isActive: !(i === 1 || i === 2),
-    isVerified: true,
-    user: { firstName: 'James', lastName: 'Smith', email: 'john.doe@example.com', changpayId: null, avatar: null },
-    lastActivityAt: '2026-01-05T10:30:00+00:00',
-    createdAt: '2026-01-05T10:30:00+00:00',
-  }));
+// ─── Wallet detail modal ───────────────────────────────────────────────────────
+function WalletDetailModal({ wallet, onClose, onToggleLock, toggling }: { wallet: WalletRecord; onClose: () => void; onToggleLock: (wallet: WalletRecord) => void; toggling: boolean }) {
+  const [copied, setCopied] = useState(false);
+  const userName = wallet.user ? [wallet.user.firstName, wallet.user.lastName].filter(Boolean).join(' ') : '—';
+  const lastActivity = wallet.lastActivityAt
+    ? new Date(wallet.lastActivityAt).toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '')
+    : '—';
+  const dateCreated = wallet.createdAt
+    ? new Date(wallet.createdAt).toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '')
+    : '—';
+
+  const row = (label: string, value: React.ReactNode) => (
+    <div className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+      <span className="text-sm text-gray-500">{label}</span>
+      <span className="text-sm font-semibold text-gray-900">{value}</span>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <h3 className="text-base font-bold text-gray-900">Wallet Details</h3>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        <div className="px-6 py-4">
+          <div className="flex items-center justify-between py-2 border-b border-gray-50">
+            <span className="text-sm text-gray-500">Wallet ID</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm font-semibold text-gray-900 font-mono">{wallet.id}</span>
+              <button
+                onClick={() => { navigator.clipboard.writeText(wallet.id); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+                className="text-gray-400 hover:text-gray-600">
+                {copied
+                  ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#009F51" strokeWidth="2.5"><path d="m5 13 4 4L19 7" /></svg>
+                  : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>}
+              </button>
+            </div>
+          </div>
+          {row('Owner', <UserCell name={userName} email={wallet.user?.changpayId ?? wallet.user?.email ?? ''} initials={null} />)}
+          {row('Currency', wallet.currency)}
+          {row('Balance', `${currencySymbol(wallet.currency)}${Number(wallet.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}
+          {row('Available Balance', `${currencySymbol(wallet.currency)}${Number(wallet.availableBalance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}
+          {row('Status', <StatusBadge isLocked={wallet.isLocked} isActive={wallet.isActive} />)}
+          {row('Verified', wallet.isVerified ? 'Yes' : 'No')}
+          {row('Date Created', dateCreated)}
+          {row('Last Activity', lastActivity)}
+        </div>
+
+        <div className="px-6 pb-6">
+          <button
+            onClick={() => onToggleLock(wallet)}
+            disabled={toggling}
+            className="w-full py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+            style={{ backgroundColor: wallet.isLocked ? '#009F51' : '#FF756B' }}>
+            {toggling ? 'Processing…' : wallet.isLocked ? 'Unfreeze Wallet' : 'Freeze Wallet'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-//  PAGE
-// ═════════════════════════════════════════════════════════════════════════════
 export default function WalletManagementPage() {
   const { isAuthenticated } = useAuthStore();
 
@@ -268,13 +365,18 @@ export default function WalletManagementPage() {
   const [wallets,        setWallets]        = useState<WalletRecord[]>([]);
   const [recentActivity, setRecentActivity] = useState<RecentActivityItem[]>([]);
   const [togglingId,          setTogglingId]          = useState<string | null>(null);
+  const [viewingWallet,       setViewingWallet]       = useState<WalletRecord | null>(null);
   const [reconciliation,      setReconciliation]      = useState<ReconciliationStatus | null>(null);
   const [loadingStats,        setLoadingStats]        = useState(true);
   const [loadingWallets,      setLoadingWallets]      = useState(false);
   const [loadingRecon,        setLoadingRecon]        = useState(false);
   const [runningRecon,        setRunningRecon]        = useState(false);
   const [topups,              setTopups]              = useState<TopupTransaction[] | null>(null);
+  const [topupPage,           setTopupPage]           = useState(1);
+  const [topupMeta,           setTopupMeta]           = useState<{ last_page: number; from: number | null; to: number | null; total: number } | null>(null);
   const [swaps,               setSwaps]               = useState<SwapTransaction[] | null>(null);
+  const [swapPage,            setSwapPage]            = useState(1);
+  const [swapMeta,            setSwapMeta]            = useState<{ last_page: number; from: number | null; to: number | null; total: number } | null>(null);
   const [ledger,              setLedger]              = useState<LedgerEntry[] | null>(null);
   const [ledgerPage,          setLedgerPage]          = useState(1);
   const [ledgerMeta,          setLedgerMeta]          = useState<{ current_page: number; last_page: number; from: number | null; to: number | null; total: number } | null>(null);
@@ -341,19 +443,21 @@ export default function WalletManagementPage() {
     }
   };
 
-  const fetchTopups = useCallback(async (search = '', status = '') => {
+  const fetchTopups = useCallback(async (search = '', status = '', page = 1) => {
     try {
       setLoadingTopups(true);
-      const res = await walletApi.getTopups({ search: search || undefined, status: status && status !== 'All Status' ? status.toLowerCase() : undefined, per_page: 15 });
+      const res = await walletApi.getTopups({ search: search || undefined, status: status && status !== 'All Status' ? status.toLowerCase() : undefined, per_page: 15, page });
       setTopups(res.data?.data ?? []);
+      if (res.data?.meta) setTopupMeta(res.data.meta);
     } catch { /* silent */ } finally { setLoadingTopups(false); }
   }, []);
 
-  const fetchSwaps = useCallback(async (search = '', status = '') => {
+  const fetchSwaps = useCallback(async (search = '', status = '', page = 1) => {
     try {
       setLoadingSwaps(true);
-      const res = await walletApi.getSwaps({ search: search || undefined, status: status && status !== 'All Status' ? status.toLowerCase() : undefined, per_page: 15 });
+      const res = await walletApi.getSwaps({ search: search || undefined, status: status && status !== 'All Status' ? status.toLowerCase() : undefined, per_page: 15, page });
       setSwaps(res.data?.data ?? []);
+      if (res.data?.meta) setSwapMeta(res.data.meta);
     } catch { /* silent */ } finally { setLoadingSwaps(false); }
   }, []);
 
@@ -370,12 +474,12 @@ export default function WalletManagementPage() {
 
   useEffect(() => {
     if (mainTab === 'currency-wallets' && cwSubTab === 'wallets') fetchCurrencyWallets(selectedCurrency, currentPage, walletSearch);
-    if (mainTab === 'currency-wallets' && cwSubTab === 'topup') fetchTopups(topupSearch, topupFilter);
-    if (mainTab === 'currency-wallets' && cwSubTab === 'swap') fetchSwaps(swapSearch, swapFilter);
+    if (mainTab === 'currency-wallets' && cwSubTab === 'topup') fetchTopups(topupSearch, topupFilter, topupPage);
+    if (mainTab === 'currency-wallets' && cwSubTab === 'swap') fetchSwaps(swapSearch, swapFilter, swapPage);
     if (mainTab === 'ledger') fetchLedger(ledgerSearch, ledgerPage);
     if (mainTab === 'reconciliation') fetchReconciliation();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mainTab, cwSubTab, selectedCurrency, currentPage, topupSearch, topupFilter, swapSearch, swapFilter, ledgerSearch, ledgerPage]);
+  }, [mainTab, cwSubTab, selectedCurrency, currentPage, topupSearch, topupFilter, topupPage, swapSearch, swapFilter, swapPage, ledgerSearch, ledgerPage]);
 
   const handleWalletSearch = (val: string) => {
     setWalletSearch(val);
@@ -389,13 +493,13 @@ export default function WalletManagementPage() {
   const handleTopupSearch = (val: string) => {
     setTopupSearch(val);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    searchTimeout.current = setTimeout(() => fetchTopups(val, topupFilter), 400);
+    searchTimeout.current = setTimeout(() => { setTopupPage(1); fetchTopups(val, topupFilter, 1); }, 400);
   };
 
   const handleSwapSearch = (val: string) => {
     setSwapSearch(val);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    searchTimeout.current = setTimeout(() => fetchSwaps(val, swapFilter), 400);
+    searchTimeout.current = setTimeout(() => { setSwapPage(1); fetchSwaps(val, swapFilter, 1); }, 400);
   };
 
   const handleCurrencyChange = (currency: CurrencyType) => {
@@ -410,7 +514,10 @@ export default function WalletManagementPage() {
     try {
       setTogglingId(wallet.id);
       const res = await walletApi.toggleLock(wallet.id);
-      if (res.status) setWallets((prev) => prev.map((w) => w.id === wallet.id ? res.data : w));
+      if (res.status) {
+        setWallets((prev) => prev.map((w) => w.id === wallet.id ? res.data : w));
+        setViewingWallet((prev) => prev && prev.id === wallet.id ? res.data : prev);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to toggle wallet lock');
     } finally {
@@ -420,12 +527,8 @@ export default function WalletManagementPage() {
 
   if (!isAuthenticated) return null;
 
-  const displayWallets: WalletRecord[] = wallets.length > 0
-    ? wallets
-    : currencyData === null
-      ? buildMockWallets(selectedCurrency)
-      : [];
-  const totalPages = currencyData?.wallets?.meta?.last_page ?? 3;
+  const displayWallets: WalletRecord[] = wallets;
+  const totalPages = currencyData?.wallets?.meta?.last_page ?? 1;
 
   const goToCurrencyWallets = (currency: CurrencyType) => {
     setMainTab('currency-wallets');
@@ -444,7 +547,7 @@ export default function WalletManagementPage() {
   const CW_TABS: CwSubTab[] = ['wallets', 'topup', 'swap'];
 
   return (
-    <div className="flex h-screen bg-[#F8F9FA] font-['DM_Sans',sans-serif]">
+    <div className="flex h-screen bg-[#F8F9FA]" style={FONT}>
       <Sidebar />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -458,7 +561,7 @@ export default function WalletManagementPage() {
           <nav className="flex w-full">
             {MAIN_TABS.map((tab) => (
               <button key={tab.id} onClick={() => setMainTab(tab.id)}
-                className={`relative px-10 py-4 text-sm font-medium transition-colors whitespace-nowrap flex-1 text-center ${
+                className={`relative py-4 text-sm font-medium transition-colors whitespace-nowrap flex-1 text-center ${
                   mainTab === tab.id ? 'text-emerald-600' : 'text-gray-500 hover:text-gray-700'
                 }`}>
                 {tab.label}
@@ -468,7 +571,7 @@ export default function WalletManagementPage() {
           </nav>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto bg-white">
           {error && (
             <div className="mx-8 mt-5 p-3 bg-red-50 border border-red-200 rounded-xl">
               <p className="text-sm text-red-600">{error}</p>
@@ -478,78 +581,70 @@ export default function WalletManagementPage() {
           {/* ── OVERVIEW ── */}
           {mainTab === 'overview' && (
             <div className="p-8 space-y-6">
-              <div className="grid grid-cols-3 gap-5">
-                <div className="bg-[#F8F9FA] rounded-2xl border border-gray-200 p-6">
-                  <p className="text-xs text-gray-500 mb-3">Total Wallets</p>
+              <div className="grid grid-cols-3 items-stretch" style={{ gap: '12.02px' }}>
+                <div className="flex flex-col bg-[#F8F9FA]" style={{ borderRadius: '18.03px', padding: '18.03px', minHeight: 112 }}>
+                  <p className="text-xs text-gray-500 mb-2">Total Wallets</p>
                   {loadingStats ? <Skeleton className="h-10 w-16" /> : (
                     <div className="flex items-center gap-2">
-                      <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18 0a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3" />
-                      </svg>
-                      <p className="text-4xl font-bold text-gray-900">{stats?.total_wallets ?? '—'}</p>
+                      <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center flex-shrink-0">
+                        <Image src="/wallet.png" alt="" width={16} height={16} />
+                      </div>
+                      <p style={{ fontFamily: FONT.fontFamily, color: '#1A1D1F', fontWeight: 600, fontSize: '30.04px', lineHeight: '130%', letterSpacing: '0%' }}>{stats?.total_wallets ?? '—'}</p>
                     </div>
                   )}
                 </div>
 
-                <div className="bg-[#F8F9FA] rounded-2xl border border-gray-200 p-6">
-                  <p className="text-xs text-gray-500 mb-3">Today's Transactions</p>
+                <div className="flex flex-col bg-[#F8F9FA]" style={{ borderRadius: '18.03px', padding: '18.03px', minHeight: 112 }}>
+                  <p className="text-xs text-gray-500 mb-2">Today's Transactions</p>
                   {loadingStats ? <Skeleton className="h-10 w-28" /> : (
                     <div className="flex items-center gap-2">
-                      <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
-                      </svg>
-                      <p className="text-4xl font-bold text-gray-900">{stats?.today?.transactions_count ?? '—'}</p>
+                      <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center flex-shrink-0">
+                        <Image src="/arrowupbn.png" alt="" width={16} height={16} />
+                      </div>
+                      <p style={{ fontFamily: FONT.fontFamily, color: '#1A1D1F', fontWeight: 600, fontSize: '30.04px', lineHeight: '130%', letterSpacing: '0%' }}>{stats?.today?.transactions_count ?? '—'}</p>
                     </div>
                   )}
                 </div>
 
-                <div className="bg-[#F8F9FA] rounded-2xl border border-gray-200 p-6">
-                  <p className="text-xs text-gray-500 mb-3">Transaction Volume</p>
+                <div className="flex flex-col bg-[#F8F9FA]" style={{ borderRadius: '18.03px', padding: '18.03px', minHeight: 112 }}>
+                  <p className="text-xs text-gray-500 mb-2">Transaction Volume</p>
                   {loadingStats ? <Skeleton className="h-10 w-28" /> : (
                     stats?.transaction_volume?.total != null ? (
-                      <>
-                        <p className="text-4xl font-bold text-gray-900">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center flex-shrink-0">
+                          <Image src="/arrowupbn.png" alt="" width={16} height={16} />
+                        </div>
+                        <p style={{ fontFamily: FONT.fontFamily, color: '#1A1D1F', fontWeight: 600, fontSize: '30.04px', lineHeight: '130%', letterSpacing: '0%' }}>
                           ${Number(stats.transaction_volume.total).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </p>
-                        {stats.transaction_volume.by_currency && (
-                          <div className="mt-3 space-y-1.5">
-                            {Object.entries(stats.transaction_volume.by_currency).map(([cur, amt]) => (
-                              <div key={cur} className="flex items-center justify-between">
-                                <span className="text-xs text-gray-400">{cur}</span>
-                                <span className="text-xs font-semibold text-gray-700">
-                                  {currencySymbol(cur)}{Number(amt).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </>
-                    ) : <p className="text-4xl font-bold text-gray-400">—</p>
+                      </div>
+                    ) : <p style={{ fontFamily: FONT.fontFamily, color: '#9CA3AF', fontWeight: 600, fontSize: '30.04px', lineHeight: '130%', letterSpacing: '0%' }}>—</p>
                   )}
                 </div>
               </div>
 
               {/* Currency cards */}
-              <div className="grid grid-cols-3 gap-5">
+              <div className="grid grid-cols-3 items-stretch" style={{ gap: '12.02px' }}>
                 {(['USD', 'NGN', 'YAN'] as CurrencyType[]).map((cur) => {
                   const curData = stats?.by_currency?.[cur];
                   const labels: Record<CurrencyType, string>  = { USD: 'USD Wallets', NGN: 'NGN Wallets', YAN: 'YUAN Wallet Balance' };
                   const links:  Record<CurrencyType, string>  = { USD: 'View All USD Wallets', NGN: 'View All NGN Wallets', YAN: 'View All YUAN Wallets' };
                   return (
-                    <div key={cur} className="bg-[#F8F9FA] rounded-2xl border border-gray-200 p-6">
-                      <p className="text-xs text-gray-500 mb-3">{labels[cur]}</p>
+                    <div key={cur} className="flex flex-col bg-[#F8F9FA]" style={{ borderRadius: '18.03px', padding: '18.03px', minHeight: 112 }}>
+                      <p className="text-xs text-gray-500 mb-2">{labels[cur]}</p>
                       {loadingStats ? <Skeleton className="h-10 w-36" /> : (
                         <div>
                           <div className="flex items-center gap-2.5 mb-1">
                             <CurrencyFlag currency={cur} className="w-7 h-5" />
-                            <p className="text-3xl font-bold text-gray-900">
+                            <p style={{ fontFamily: FONT.fontFamily, color: '#1A1D1F', fontWeight: 600, fontSize: '30.04px', lineHeight: '130%', letterSpacing: '0%' }}>
                               {curData ? `${currencySymbol(cur)}${curData.total_balance}` : '—'}
                             </p>
                           </div>
-                          {curData && <p className="text-xs text-gray-400 mt-1">Last 5 secs</p>}
+                          <p className="text-xs text-gray-400 mt-1">{curData ? 'Last 5 secs' : ' '}</p>
                         </div>
                       )}
-                      <button onClick={() => goToCurrencyWallets(cur)} className="mt-3 text-xs font-medium hover:underline" style={{ color: '#1248A4' }}>
+                      <button onClick={() => goToCurrencyWallets(cur)} className="mt-auto pt-3 text-left hover:underline"
+                        style={{ ...FONT, color: '#009F51', fontWeight: 700, fontSize: 10, lineHeight: '150%', letterSpacing: '0%' }}>
                         {links[cur]} →
                       </button>
                     </div>
@@ -558,38 +653,40 @@ export default function WalletManagementPage() {
               </div>
 
               {/* Recent Activity — API data only */}
-              <div className="bg-white rounded-2xl border border-gray-200 p-6">
-                <div className="flex items-center justify-between mb-5">
-                  <h3 className="text-base font-semibold text-gray-900">Recent System Activity</h3>
-                  <button onClick={() => setMainTab('ledger')} className="text-sm font-medium hover:underline" style={{ color: '#1248A4' }}>
-                    View Full Ledger →
-                  </button>
-                </div>
-                {loadingStats ? (
-                  <div className="space-y-3">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
-                ) : recentActivity.length === 0 ? (
-                  <div className="py-10 text-center text-sm text-gray-400">No recent activity data available</div>
-                ) : (
-                  <div className="space-y-3">
-                    {recentActivity.map((item, i) => (
-                      <div key={i} className="flex items-center justify-between bg-[#F8F9FA] rounded-xl px-4 py-3.5">
-                        <div className="flex items-center gap-3">
-                          {item.action === 'credit' ? <CreditIcon /> : <DebitIcon />}
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">{item.user}</p>
-                            <p className="text-xs text-gray-400">{item.walletId.slice(0, 8).toUpperCase()} • {item.label}</p>
+              <div style={{ backgroundColor: '#F8F9FA', borderRadius: 16, borderWidth: '1.05px', borderStyle: 'solid', borderColor: '#E1E4E6', paddingTop: 16, paddingBottom: 16, paddingLeft: 12, paddingRight: 12 }}>
+                <div className="bg-white rounded-xl p-6">
+                  <div className="flex items-center justify-between mb-5">
+                    <h3 className="text-base font-semibold text-gray-900">Recent System Activity</h3>
+                    <button onClick={() => setMainTab('ledger')} className="text-sm font-medium hover:underline" style={{ color: '#1248A4' }}>
+                      View Full Ledger →
+                    </button>
+                  </div>
+                  {loadingStats ? (
+                    <div className="space-y-3">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+                  ) : recentActivity.length === 0 ? (
+                    <div className="py-10 text-center text-sm text-gray-400">No recent activity data available</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {recentActivity.map((item, i) => (
+                        <div key={i} className="flex items-center justify-between bg-[#F8F9FA] rounded-xl" style={{ padding: 12 }}>
+                          <div className="flex items-center gap-3">
+                            {item.action === 'credit' ? <CreditIcon /> : <DebitIcon />}
+                            <div>
+                              <p style={{ ...FONT, color: '#1A1D1F', fontWeight: 500, fontSize: 16, lineHeight: '24px', letterSpacing: '0%' }}>{item.user}</p>
+                              <p style={{ ...FONT, color: '#6A7377', fontWeight: 400, fontSize: 18, lineHeight: '136%', letterSpacing: '-1%' }}>{item.walletId.slice(0, 8).toUpperCase()} • {item.label}</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p style={{ ...FONT, color: item.action === 'credit' ? '#009F51' : '#FF756B', fontWeight: 700, fontSize: 20, lineHeight: '24px', letterSpacing: '0%', textAlign: 'right' }}>
+                              {item.action === 'debit' ? '-' : '+'}{currencySymbol(item.currency)}{Number(item.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </p>
+                            <p style={{ ...FONT, color: '#6A7377', fontWeight: 400, fontSize: 18, lineHeight: '136%', letterSpacing: '-1%', textAlign: 'right' }}>{fmtDate(item.createdAt)}</p>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className={`text-sm font-semibold ${item.action === 'credit' ? 'text-emerald-500' : 'text-red-500'}`}>
-                            {item.action === 'debit' ? '-' : '+'}{currencySymbol(item.currency)}{Number(item.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </p>
-                          <p className="text-xs text-gray-400">{fmtDate(item.createdAt)}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -597,10 +694,11 @@ export default function WalletManagementPage() {
           {/* ── CURRENCY WALLETS ── */}
           {mainTab === 'currency-wallets' && (
             <div className="p-8 space-y-5">
-              <div className="grid grid-cols-3 bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="grid grid-cols-3 gap-3">
                 {CW_TABS.map((tab) => (
                   <button key={tab} onClick={() => setCwSubTab(tab)}
-                    className={`py-3 text-sm font-semibold capitalize transition-colors ${cwSubTab === tab ? 'bg-emerald-500 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+                    className={`py-3 rounded-md capitalize transition-colors ${cwSubTab === tab ? 'text-white' : 'bg-[#F1F2F4] text-gray-700 hover:bg-gray-200'}`}
+                    style={{ ...(cwSubTab === tab ? { backgroundColor: '#009F51' } : {}), fontWeight: 400, fontSize: 16, lineHeight: '136%', letterSpacing: '0%' }}>
                     {tab.charAt(0).toUpperCase() + tab.slice(1)}
                   </button>
                 ))}
@@ -612,7 +710,8 @@ export default function WalletManagementPage() {
                   <div className="flex items-center gap-4">
                     <div className="relative flex-shrink-0">
                       <select value={selectedCurrency} onChange={(e) => handleCurrencyChange(e.target.value as CurrencyType)}
-                        className="appearance-none bg-white border border-gray-200 rounded-lg pl-3 pr-8 py-2 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer">
+                        className="appearance-none border border-gray-200 pl-3 pr-8 py-2 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
+                        style={{ backgroundColor: '#F8F9FA', borderRadius: 100 }}>
                         <option value="USD">USD Wallets</option>
                         <option value="NGN">NGN Wallets</option>
                         <option value="YUAN">YUAN Wallets</option>
@@ -621,79 +720,70 @@ export default function WalletManagementPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <CurrencyFlag currency={selectedCurrency} className="w-7 h-5" />
-                      <span className="text-base font-semibold text-gray-800">{currencyLabel(selectedCurrency)}</span>
-                      <span className="text-base font-semibold text-gray-800">
+                      <span style={{ ...FONT, color: '#1A1D1F', fontWeight: 600, fontSize: 24, lineHeight: '120%', letterSpacing: '-1%' }}>{currencyLabel(selectedCurrency)}</span>
+                      <span style={{ ...FONT, color: '#6A7377', fontWeight: 400, fontSize: 24, lineHeight: '120%', letterSpacing: '-1%' }}>
                         Total Balance:{' '}
-                        {currencyData?.stats?.total_balance != null
-                          ? `${currencySymbol(selectedCurrency)}${Number(currencyData.stats.total_balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                          : stats?.by_currency?.[selectedCurrency]?.total_balance
-                            ? `${currencySymbol(selectedCurrency)}${stats.by_currency[selectedCurrency].total_balance}`
-                            : '—'}
+                        <span style={{ ...FONT, color: '#1A1D1F', fontWeight: 600, fontSize: 24, lineHeight: '120%', letterSpacing: '-1%' }}>
+                          {currencyData?.stats?.total_balance != null
+                            ? `${currencySymbol(selectedCurrency)}${Number(currencyData.stats.total_balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                            : stats?.by_currency?.[selectedCurrency]?.total_balance
+                              ? `${currencySymbol(selectedCurrency)}${stats.by_currency[selectedCurrency].total_balance}`
+                              : '—'}
+                        </span>
                       </span>
                     </div>
                   </div>
                   <div className="max-w-lg">
                     <SearchBar value={walletSearch} onChange={handleWalletSearch} placeholder="Search by name, wallet ID or transaction ID..." />
                   </div>
-                  <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full">
                         <thead>
-                          <tr className="border-b border-gray-100">
-                            {['Wallet ID','User','Balance','Status','Last activity','Action'].map((h) => (
-                              <th key={h} className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>
+                          <tr style={{ backgroundColor: '#F8F9FA', borderTop: '1.05px solid #E1E4E6', borderBottom: '1.05px solid #E1E4E6' }}>
+                            {['Wallet ID','User','Balance','Date Created','Status','Last activity','Action'].map((h) => (
+                              <th key={h} className="pl-5 py-4 text-left whitespace-nowrap"
+                                style={{ ...FONT, color: '#6A7377', fontWeight: 400, fontSize: '14.67px', lineHeight: '150%', letterSpacing: '0.02em', paddingRight: '9.43px' }}>{h}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
                           {loadingWallets ? [...Array(6)].map((_, i) => (
-                            <tr key={i}>{[...Array(6)].map((_, j) => <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                            <tr key={i}>{[...Array(7)].map((_, j) => <td key={j} className="px-5 py-5"><Skeleton className="h-5 w-full" /></td>)}</tr>
                           )) : displayWallets.length === 0 ? (
-                            <tr><td colSpan={6} className="px-5 py-12 text-center text-sm text-gray-400">No {selectedCurrency} wallets found</td></tr>
+                            <tr><td colSpan={7} className="px-5 py-12 text-center text-sm text-gray-400">No {selectedCurrency} wallets found</td></tr>
                           ) : (
                             displayWallets.map((wallet, idx) => {
                               const userName = wallet.user
                                 ? [wallet.user.firstName, wallet.user.lastName].filter(Boolean).join(' ')
                                 : '—';
-                              const lastActivity = wallet.lastActivityAt
-                                ? new Date(wallet.lastActivityAt).toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '')
+                              const dateCreated = wallet.createdAt
+                                ? new Date(wallet.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' })
                                 : '—';
                               return (
                                 <tr key={wallet.id ?? idx} className="hover:bg-gray-50/50 transition-colors">
-                                  <td className="px-5 py-4 text-sm font-medium text-gray-900 font-mono">{wallet.id.slice(0, 8).toUpperCase()}</td>
-                                  <td className="px-5 py-4">
+                                  <td className="pl-5 py-5 text-[13px] font-bold text-gray-900 font-mono" style={{ paddingRight: '9.43px' }}>{wallet.id.slice(0, 8).toUpperCase()}</td>
+                                  <td className="pl-5 py-5" style={{ paddingRight: '9.43px' }}>
                                     <UserCell
                                       name={userName}
                                       email={wallet.user?.changpayId ?? wallet.user?.email ?? ''}
                                       initials={null}
                                     />
                                   </td>
-                                  <td className="px-5 py-4 text-sm font-semibold text-gray-900">
+                                  <td className="pl-5 py-5 text-[13px] font-bold text-gray-900" style={{ paddingRight: '9.43px' }}>
                                     {currencySymbol(wallet.currency)}{Number(wallet.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                   </td>
-                                  <td className="px-5 py-4"><StatusBadge isLocked={wallet.isLocked} isActive={wallet.isActive} /></td>
-                                  <td className="px-5 py-4">
-                                    <p className="text-xs text-gray-500 whitespace-nowrap">{lastActivity}</p>
+                                  <td className="pl-5 py-5" style={{ paddingRight: '9.43px' }}>
+                                    <p className="text-[13px] text-gray-600 whitespace-nowrap">{dateCreated}</p>
                                   </td>
-                                  <td className="px-5 py-4">
-                                    <div className="relative group inline-block">
-                                      <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 transition-colors text-gray-500">
-                                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                                          <circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" />
-                                        </svg>
-                                      </button>
-                                      <div className="absolute right-0 top-full mt-1 w-36 bg-white rounded-xl shadow-lg border border-gray-100 py-1 hidden group-hover:block z-10">
-                                        <button className="w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 text-left">View wallet</button>
-                                        <button className="w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 text-left">Credit user</button>
-                                        <button className="w-full px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2 text-left">Debit user</button>
-                                        <button
-                                          onClick={() => handleToggleLock(wallet)}
-                                          disabled={togglingId === wallet.id}
-                                          className="w-full px-3 py-2 text-xs text-red-500 hover:bg-red-50 flex items-center gap-2 text-left disabled:opacity-50">
-                                          {togglingId === wallet.id ? '...' : wallet.isLocked ? 'Unfreeze' : 'Freeze wallet'}
-                                        </button>
-                                      </div>
-                                    </div>
+                                  <td className="pl-5 py-5" style={{ paddingRight: '9.43px' }}><StatusBadge isLocked={wallet.isLocked} isActive={wallet.isActive} /></td>
+                                  <td className="pl-5 py-5" style={{ paddingRight: '9.43px' }}>
+                                    <TimestampCell date={wallet.lastActivityAt} />
+                                  </td>
+                                  <td className="pl-5 py-5" style={{ paddingRight: '9.43px' }}>
+                                    <button onClick={() => setViewingWallet(wallet)} className="text-sm font-semibold" style={{ color: '#009F51' }}>
+                                      Adjust
+                                    </button>
                                   </td>
                                 </tr>
                               );
@@ -712,37 +802,46 @@ export default function WalletManagementPage() {
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
                     <SearchBar value={topupSearch} onChange={handleTopupSearch} placeholder="Search..." />
-                    <StatusFilter value={topupFilter} onChange={(v) => { setTopupFilter(v); fetchTopups(topupSearch, v); }} />
+                    <StatusFilter value={topupFilter} onChange={(v) => { setTopupFilter(v); setTopupPage(1); fetchTopups(topupSearch, v, 1); }} />
                     <ExportBtn onClick={() => topups && downloadCSV('topups', ['Txn ID','User','Wallet ID','Amount','Currency','Method','Status','Timestamp','Reference'],
                       topups.map(r => [r.reference ?? r.id, r.user ? `${r.user.firstName} ${r.user.lastName}`.trim() : '', r.wallet?.id ?? '', r.amount, r.currency, r.provider, r.status, r.createdAt, r.reference]))} />
                   </div>
-                  <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full">
-                        <thead><tr className="border-b border-gray-100">{['Transaction ID','User','Wallet ID','Amount','Method','Status','Timestamp','Reference'].map((h) => <th key={h} className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>)}</tr></thead>
+                        <thead><tr style={{ backgroundColor: '#F8F9FA', borderTop: '1.05px solid #E1E4E6', borderBottom: '1.05px solid #E1E4E6' }}>{['Transaction ID','User','Wallet ID','Amount','Method','Status','Timestamp','Reference'].map((h) => <th key={h} className="pl-5 py-4 text-left whitespace-nowrap" style={{ ...FONT, color: '#6A7377', fontWeight: 400, fontSize: '14.67px', lineHeight: '150%', letterSpacing: '0.02em', paddingRight: '9.43px' }}>{h}</th>)}</tr></thead>
                         <tbody className="divide-y divide-gray-50">
                           {loadingTopups
                             ? [...Array(4)].map((_, i) => (
-                                <tr key={i}>{[...Array(8)].map((_, j) => <td key={j} className="px-4 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                                <tr key={i}>{[...Array(8)].map((_, j) => <td key={j} className="px-5 py-5"><Skeleton className="h-5 w-full" /></td>)}</tr>
                               ))
                             : !topups || topups.length === 0
-                              ? <tr><td colSpan={8} className="px-4 py-16 text-center text-sm text-gray-400">No topup transactions available</td></tr>
+                              ? <tr><td colSpan={8} className="px-5 py-16 text-center text-sm text-gray-400">No topup transactions available</td></tr>
                               : topups.map((row) => (
                                   <tr key={String(row.id)} className="hover:bg-gray-50/50 transition-colors">
-                                    <td className="px-4 py-4 text-sm font-medium text-gray-900">{String(row.reference ?? row.id).slice(0, 12)}</td>
-                                    <td className="px-4 py-4"><UserCell name={row.user ? `${row.user.firstName} ${row.user.lastName}`.trim() : '—'} email={row.user?.changpayId ?? row.user?.email ?? ''} initials={null} /></td>
-                                    <td className="px-4 py-4 text-sm text-gray-600">{row.wallet?.id?.slice(0, 8).toUpperCase() ?? '—'}</td>
-                                    <td className="px-4 py-4"><p className="text-sm font-semibold text-gray-900">{currencySymbol(row.currency)}{Number(row.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p><p className="text-xs text-gray-400">{row.currency}</p></td>
-                                    <td className="px-4 py-4 text-sm text-gray-600 capitalize">{row.provider}</td>
-                                    <td className="px-4 py-4"><TxBadge status={row.status} /></td>
-                                    <td className="px-4 py-4 text-xs text-gray-500 whitespace-nowrap">{fmtDate(row.createdAt)}</td>
-                                    <td className="px-4 py-4 text-xs text-gray-500">{row.reference}</td>
+                                    <td className="px-5 py-5 text-[13px] font-bold text-gray-900">{String(row.reference ?? row.id).slice(0, 12)}</td>
+                                    <td className="px-5 py-5"><UserCell name={row.user ? `${row.user.firstName} ${row.user.lastName}`.trim() : '—'} email={row.user?.changpayId ?? row.user?.email ?? ''} initials={null} /></td>
+                                    <td className="px-5 py-5 text-[13px] font-bold text-gray-900">{row.wallet?.id?.slice(0, 8).toUpperCase() ?? '—'}</td>
+                                    <td className="px-5 py-5"><p className="text-[13px] font-bold text-gray-900">{currencySymbol(row.currency)}{Number(row.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p><p className="text-xs text-gray-400">{row.currency}</p></td>
+                                    <td className="px-5 py-5 text-[13px] text-gray-800 capitalize">{row.provider}</td>
+                                    <td className="px-5 py-5"><TxBadge status={row.status} /></td>
+                                    <td className="px-5 py-5"><TimestampCell date={row.createdAt} /></td>
+                                    <td className="px-5 py-5 text-[13px] text-gray-500">{row.reference}</td>
                                   </tr>
                                 ))
                           }
                         </tbody>
                       </table>
                     </div>
+                    <Pagination
+                      currentPage={topupPage}
+                      totalPages={topupMeta?.last_page ?? 1}
+                      onChange={setTopupPage}
+                      loading={loadingTopups}
+                      from={topupMeta?.from ?? undefined}
+                      to={topupMeta?.to ?? undefined}
+                      total={topupMeta?.total}
+                    />
                   </div>
                 </div>
               )}
@@ -752,38 +851,47 @@ export default function WalletManagementPage() {
                 <div className="space-y-4">
                   <div className="flex items-center gap-3">
                     <SearchBar value={swapSearch} onChange={handleSwapSearch} placeholder="Search..." />
-                    <StatusFilter value={swapFilter} onChange={(v) => { setSwapFilter(v); fetchSwaps(swapSearch, v); }} />
+                    <StatusFilter value={swapFilter} onChange={(v) => { setSwapFilter(v); setSwapPage(1); fetchSwaps(swapSearch, v, 1); }} />
                     <ExportBtn onClick={() => swaps && downloadCSV('swaps', ['Txn ID','User','From Amount','From Currency','To Amount','To Currency','Rate','Status','Timestamp','Reference'],
                       swaps.map(r => [r.reference ?? r.id, r.user ? `${r.user.firstName} ${r.user.lastName}`.trim() : '', r.fromAmount, r.fromCurrency, r.toAmount, r.toCurrency, r.rate, r.status, r.createdAt, r.reference]))} />
                   </div>
-                  <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full">
-                        <thead><tr className="border-b border-gray-100">{['Transaction ID','User','Wallet ID','From','To','Rate','Status','Timestamp','Reference'].map((h) => <th key={h} className="px-4 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>)}</tr></thead>
+                        <thead><tr style={{ backgroundColor: '#F8F9FA', borderTop: '1.05px solid #E1E4E6', borderBottom: '1.05px solid #E1E4E6' }}>{['Transaction ID','User','Wallet ID','From','To','Rate','Status','Timestamp','Reference'].map((h) => <th key={h} className="pl-5 py-4 text-left whitespace-nowrap" style={{ ...FONT, color: '#6A7377', fontWeight: 400, fontSize: '14.67px', lineHeight: '150%', letterSpacing: '0.02em', paddingRight: '9.43px' }}>{h}</th>)}</tr></thead>
                         <tbody className="divide-y divide-gray-50">
                           {loadingSwaps
                             ? [...Array(4)].map((_, i) => (
-                                <tr key={i}>{[...Array(9)].map((_, j) => <td key={j} className="px-4 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                                <tr key={i}>{[...Array(9)].map((_, j) => <td key={j} className="px-5 py-5"><Skeleton className="h-5 w-full" /></td>)}</tr>
                               ))
                             : !swaps || swaps.length === 0
-                              ? <tr><td colSpan={9} className="px-4 py-16 text-center text-sm text-gray-400">No swap transactions available</td></tr>
+                              ? <tr><td colSpan={9} className="px-5 py-16 text-center text-sm text-gray-400">No swap transactions available</td></tr>
                               : swaps.map((row) => (
                                   <tr key={String(row.id)} className="hover:bg-gray-50/50 transition-colors">
-                                    <td className="px-4 py-4 text-sm font-medium text-gray-900">{String(row.reference ?? row.id).slice(0, 12)}</td>
-                                    <td className="px-4 py-4"><UserCell name={row.user ? `${row.user.firstName} ${row.user.lastName}`.trim() : '—'} email={row.user?.changpayId ?? row.user?.email ?? ''} initials={null} /></td>
-                                    <td className="px-4 py-4 text-sm text-gray-600">—</td>
-                                    <td className="px-4 py-4 text-sm font-medium text-gray-900"><p>{currencySymbol(row.fromCurrency)}{Number(row.fromAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p><p className="text-xs text-gray-400">{row.fromCurrency}</p></td>
-                                    <td className="px-4 py-4 text-sm font-semibold text-emerald-600"><p>{currencySymbol(row.toCurrency)}{Number(row.toAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p><p className="text-xs text-gray-400">{row.toCurrency}</p></td>
-                                    <td className="px-4 py-4 text-sm text-gray-600">{row.rate}</td>
-                                    <td className="px-4 py-4"><TxBadge status={row.status} /></td>
-                                    <td className="px-4 py-4 text-xs text-gray-500 whitespace-nowrap">{fmtDate(row.createdAt)}</td>
-                                    <td className="px-4 py-4 text-xs text-gray-500">{row.reference}</td>
+                                    <td className="px-5 py-5 text-[13px] font-bold text-gray-900">{String(row.reference ?? row.id).slice(0, 12)}</td>
+                                    <td className="px-5 py-5"><UserCell name={row.user ? `${row.user.firstName} ${row.user.lastName}`.trim() : '—'} email={row.user?.changpayId ?? row.user?.email ?? ''} initials={null} /></td>
+                                    <td className="px-5 py-5 text-[13px] font-bold text-gray-900">—</td>
+                                    <td className="px-5 py-5 text-[13px] font-bold text-gray-900"><p>{currencySymbol(row.fromCurrency)}{Number(row.fromAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p><p className="text-xs text-gray-400 font-normal">{row.fromCurrency}</p></td>
+                                    <td className="px-5 py-5 text-[13px] font-bold text-emerald-600"><p>{currencySymbol(row.toCurrency)}{Number(row.toAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p><p className="text-xs text-gray-400 font-normal">{row.toCurrency}</p></td>
+                                    <td className="px-5 py-5 text-[13px] text-gray-700">{row.rate}</td>
+                                    <td className="px-5 py-5"><TxBadge status={row.status} /></td>
+                                    <td className="px-5 py-5"><TimestampCell date={row.createdAt} /></td>
+                                    <td className="px-5 py-5 text-[13px] text-gray-500">{row.reference}</td>
                                   </tr>
                                 ))
                           }
                         </tbody>
                       </table>
                     </div>
+                    <Pagination
+                      currentPage={swapPage}
+                      totalPages={swapMeta?.last_page ?? 1}
+                      onChange={setSwapPage}
+                      loading={loadingSwaps}
+                      from={swapMeta?.from ?? undefined}
+                      to={swapMeta?.to ?? undefined}
+                      total={swapMeta?.total}
+                    />
                   </div>
                 </div>
               )}
@@ -797,36 +905,32 @@ export default function WalletManagementPage() {
               <div className="flex items-center gap-3">
                 <SearchBar value={ledgerSearch} onChange={setLedgerSearch} placeholder="Search by wallet, user, reference, or description..." />
                 <ExportBtn onClick={() => ledger && downloadCSV('ledger',
-                  ['Time','User','Wallet ID','Currency','Action','Amount','Balance Before','Balance After','Tx Type','Status','Reference'],
-                  ledger.map(r => [r.createdAt, `${r.wallet.user.firstName} ${r.wallet.user.lastName}`.trim(), r.wallet.id, r.wallet.currency, r.action, r.amount, r.balanceBefore, r.balanceAfter, r.transaction.type, r.transaction.status, r.transaction.reference]))} />
+                  ['Time','User','Wallet ID','Currency','Type','Amount','Reference','Description'],
+                  ledger.map(r => [r.createdAt, `${r.wallet.user.firstName} ${r.wallet.user.lastName}`.trim(), r.wallet.id, r.wallet.currency, r.transaction.type, r.amount, r.transaction.reference, ledgerDescription(r)]))} />
               </div>
-              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead>
-                      <tr className="border-b border-gray-100">
-                        {['Time','User','Wallet','Action','Amount','Balance Before','Balance After','Tx Type','Status','Reference'].map((h) => (
-                          <th key={h} className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>
+                      <tr className="bg-[#F8F9FA] border-b border-gray-100">
+                        {['Time','User','Wallet','Type','Amount','Reference','Description'].map((h) => (
+                          <th key={h} className="px-5 py-4 text-left text-sm font-medium text-gray-500 whitespace-nowrap">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
                       {loadingLedger
                         ? [...Array(5)].map((_, i) => (
-                            <tr key={i}>{[...Array(10)].map((_, j) => <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                            <tr key={i}>{[...Array(7)].map((_, j) => <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
                           ))
                         : !ledger || ledger.length === 0
-                          ? <tr><td colSpan={10} className="px-5 py-16 text-center text-sm text-gray-400">No ledger entries available</td></tr>
+                          ? <tr><td colSpan={7} className="px-5 py-16 text-center text-sm text-gray-400">No ledger entries available</td></tr>
                           : ledger.map((row, idx) => {
                               const sym = currencySymbol(row.wallet.currency);
-                              const txStatus = row.transaction.status;
-                              const statusClass =
-                                txStatus === 'completed' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
-                                txStatus === 'failed'    ? 'bg-red-50 text-red-500 border-red-200' :
-                                                          'bg-amber-50 text-amber-600 border-amber-200';
+                              const isCredit = row.action === 'credit' || row.action === 'release';
                               return (
                                 <tr key={`${row.transaction.reference}-${idx}`} className="hover:bg-gray-50/50 transition-colors">
-                                  <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{fmtDate(row.createdAt)}</td>
+                                  <td className="px-5 py-4"><TimestampCell date={row.createdAt} /></td>
                                   <td className="px-5 py-4">
                                     <UserCell
                                       name={`${row.wallet.user.firstName} ${row.wallet.user.lastName}`.trim()}
@@ -834,30 +938,17 @@ export default function WalletManagementPage() {
                                     />
                                   </td>
                                   <td className="px-5 py-4">
-                                    <p className="text-xs font-mono text-gray-700">{row.wallet.id.slice(0, 8).toUpperCase()}</p>
+                                    <p className="text-xs font-semibold text-gray-700 font-mono">{row.wallet.id.slice(0, 8).toUpperCase()}</p>
                                     <p className="text-xs text-gray-400">{row.wallet.currency}</p>
                                   </td>
                                   <td className="px-5 py-4">
-                                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold capitalize ${row.action === 'credit' || row.action === 'release' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
-                                      {row.action}
-                                    </span>
+                                    <LedgerTypeIcon action={row.action} type={row.transaction.type} />
                                   </td>
-                                  <td className="px-5 py-4 text-sm font-semibold text-gray-900 whitespace-nowrap">
-                                    {sym}{Number(row.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                  <td className="px-5 py-4 text-sm font-semibold whitespace-nowrap" style={{ color: isCredit ? '#009F51' : '#FF756B' }}>
+                                    {isCredit ? '+' : '-'}{sym}{Number(row.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                                   </td>
-                                  <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">
-                                    {sym}{Number(row.balanceBefore).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                  </td>
-                                  <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">
-                                    {sym}{Number(row.balanceAfter).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                  </td>
-                                  <td className="px-5 py-4 text-xs text-gray-600 capitalize">{row.transaction.type}</td>
-                                  <td className="px-5 py-4">
-                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border capitalize ${statusClass}`}>
-                                      {txStatus}
-                                    </span>
-                                  </td>
-                                  <td className="px-5 py-4 text-xs text-gray-500 font-mono">{row.transaction.reference}</td>
+                                  <td className="px-5 py-4 text-xs text-gray-700 whitespace-nowrap">{row.transaction.reference}</td>
+                                  <td className="px-5 py-4 text-xs text-gray-600 min-w-[140px]">{ledgerDescription(row)}</td>
                                 </tr>
                               );
                             })
@@ -887,7 +978,7 @@ export default function WalletManagementPage() {
               {loadingRecon ? (
                 <Skeleton className="h-20 w-full" />
               ) : (
-                <div className={`${reconciliation?.is_reconciled !== false ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'} border rounded-2xl p-5 flex items-center justify-between`}>
+                <div className={`${reconciliation?.is_reconciled !== false ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'} border rounded-xl p-5 flex items-center justify-between`}>
                   <div className="flex items-center gap-4">
                     <div className={`w-11 h-11 rounded-full bg-white border flex items-center justify-center flex-shrink-0 ${reconciliation?.is_reconciled !== false ? 'border-emerald-200' : 'border-red-200'}`}>
                       {reconciliation?.is_reconciled !== false ? (
@@ -925,7 +1016,7 @@ export default function WalletManagementPage() {
               )}
 
               {/* Auto-job info */}
-              <div className="bg-white rounded-2xl border border-gray-200 p-5">
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
                 <h3 className="text-sm font-semibold text-gray-900 mb-4">Automated Reconciliation</h3>
                 {loadingRecon ? <Skeleton className="h-14 w-full" /> : (
                   <div className="flex items-center justify-between bg-[#F8F9FA] rounded-xl px-4 py-4">
@@ -953,6 +1044,15 @@ export default function WalletManagementPage() {
           )}
         </div>
       </div>
+
+      {viewingWallet && (
+        <WalletDetailModal
+          wallet={viewingWallet}
+          onClose={() => setViewingWallet(null)}
+          onToggleLock={handleToggleLock}
+          toggling={togglingId === viewingWallet.id}
+        />
+      )}
     </div>
   );
 }

@@ -10,6 +10,8 @@ import Image from 'next/image';
 interface DashboardHeaderProps {
   title: string;
   subtitle?: string;
+  large?: boolean;
+  actions?: React.ReactNode;
 }
 
 interface NotificationItem {
@@ -19,7 +21,7 @@ interface NotificationItem {
   color: string;
 }
 
-export default function DashboardHeader({ title, subtitle }: DashboardHeaderProps) {
+export default function DashboardHeader({ title, subtitle, large, actions }: DashboardHeaderProps) {
   const router = useRouter();
   const { user: authUser, token, logout, setAvatar } = useAuthStore();
 
@@ -64,11 +66,11 @@ export default function DashboardHeader({ title, subtitle }: DashboardHeaderProp
       if (res.status && res.data?.pending_actions) {
         const pa = res.data.pending_actions;
         setNotifications([
-          { label: 'KYC Approvals', count: Number(pa.kyc_approvals ?? 0), href: '/dashboard/kyc-verification', color: 'text-orange-600' },
-          { label: 'Failed Payouts', count: Number(pa.failed_payouts ?? 0), href: '/dashboard/banks-payouts', color: 'text-red-600' },
-          { label: 'Flagged Transactions', count: Number(pa.flagged_transactions ?? 0), href: '/dashboard/transactions', color: 'text-red-600' },
-          { label: 'Open Disputes', count: Number(pa.open_disputes ?? 0), href: '/dashboard/support-disputes', color: 'text-orange-600' },
-          { label: 'Open Tickets', count: Number(pa.open_tickets ?? 0), href: '/dashboard/support-disputes', color: 'text-blue-600' },
+          { label: 'KYC Approvals', count: Number(pa.kyc_approvals ?? 0), href: '/dashboard/kyc-verification?status=pending', color: 'text-orange-600' },
+          { label: 'Failed Payouts', count: Number(pa.failed_payouts ?? 0), href: '/dashboard/banks-payouts?tab=payout&status=failed', color: 'text-red-600' },
+          { label: 'Flagged Transactions', count: Number(pa.flagged_transactions ?? 0), href: '/dashboard/transactions?risk=high', color: 'text-red-600' },
+          { label: 'Open Disputes', count: Number(pa.open_disputes ?? 0), href: '/dashboard/support?tab=disputes', color: 'text-orange-600' },
+          { label: 'Open Tickets', count: Number(pa.open_tickets ?? 0), href: '/dashboard/support?tab=support-tickets', color: 'text-blue-600' },
         ].filter((n) => n.count > 0));
       }
     } catch {
@@ -114,9 +116,23 @@ export default function DashboardHeader({ title, subtitle }: DashboardHeaderProp
   return (
     <div className="flex items-center justify-between">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
-        {subtitle && <p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>}
+        <h1
+          className={large ? '' : 'text-2xl font-bold'}
+          style={large
+            ? { color: '#012D32', fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif", fontWeight: 600, fontSize: 42, lineHeight: '120%', letterSpacing: '-1%' }
+            : { color: '#012D32', fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif" }}
+        >{title}</h1>
+        {subtitle && (
+          <p
+            className={large ? '' : 'mt-0.5'}
+            style={large
+              ? { color: '#6A7377', fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif", fontWeight: 400, fontSize: 22, lineHeight: '136%', letterSpacing: '-1%' }
+              : { color: '#6A7377', fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif", fontWeight: 400, fontSize: 12, lineHeight: '120%', letterSpacing: '-1%' }}
+          >{subtitle}</p>
+        )}
       </div>
+
+      {actions && <div className="flex items-center">{actions}</div>}
 
       <div className="flex items-center gap-4">
 
@@ -132,6 +148,13 @@ export default function DashboardHeader({ title, subtitle }: DashboardHeaderProp
                 {totalNotifications > 9 ? '9+' : totalNotifications}
               </span>
             )}
+            <span
+              title="More notification types coming soon"
+              className="absolute -bottom-1 -right-1 px-1 py-0.5 text-[8px] font-bold text-white rounded-full whitespace-nowrap leading-none"
+              style={{ backgroundColor: '#EF4444' }}
+            >
+              Soon
+            </span>
           </button>
 
           {notifOpen && (
@@ -228,7 +251,7 @@ export default function DashboardHeader({ title, subtitle }: DashboardHeaderProp
           </button>
 
           {dropdownOpen && (
-            <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden">
+            <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-gray-200 shadow-xl z-50 overflow-hidden" style={{ backgroundColor: '#F8F9FA' }}>
               <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
                 <div
                   className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
@@ -248,23 +271,27 @@ export default function DashboardHeader({ title, subtitle }: DashboardHeaderProp
 
               <div className="py-1">
                 <button
-                  onClick={() => { setDropdownOpen(false); router.push('/dashboard/profile'); }}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors text-left"
+                  disabled
+                  title="Coming soon"
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-400 text-left cursor-not-allowed"
                 >
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
                   </svg>
                   My Profile
+                  <span className="ml-auto px-1.5 py-0.5 text-[9px] font-bold text-white rounded-full whitespace-nowrap" style={{ backgroundColor: '#EF4444' }}>Soon</span>
                 </button>
                 <button
-                  onClick={() => { setDropdownOpen(false); router.push('/dashboard/settings'); }}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors text-left"
+                  disabled
+                  title="Coming soon"
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-400 text-left cursor-not-allowed"
                 >
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                   Settings
+                  <span className="ml-auto px-1.5 py-0.5 text-[9px] font-bold text-white rounded-full whitespace-nowrap" style={{ backgroundColor: '#EF4444' }}>Soon</span>
                 </button>
               </div>
 

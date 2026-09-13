@@ -7,8 +7,15 @@ import { usersApi } from '@/lib/api/client';
 import type { AdminUserRecord, MetaPaginatedResponse } from '@/lib/api/client';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
+import Image from 'next/image';
+
+const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif" };
+const CELL_TEXT: React.CSSProperties = { ...FONT, fontWeight: 500, fontSize: '14.67px', lineHeight: '150%', letterSpacing: '0.02em', color: '#1A1D1F' };
 
 /* ── Helpers ── */
+function toTitleCase(name: string): string {
+  return name.toLowerCase().replace(/(^|\s|-)\S/g, (c) => c.toUpperCase());
+}
 function getInitials(first: string | null, last: string | null, email: string) {
   if (first && last) return `${first[0]}${last[0]}`.toUpperCase();
   if (first) return first.slice(0, 2).toUpperCase();
@@ -58,12 +65,12 @@ function Avatar({ user }: { user: AdminUserRecord }) {
 function StatusBadge({ isActive }: { isActive: boolean }) {
   return isActive ? (
     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border whitespace-nowrap" style={{ borderColor: '#0274D8', color: '#0274D8', backgroundColor: 'white' }}>
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <Image src="/Unlock.png" alt="" width={11} height={11} />
       Active
     </span>
   ) : (
     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-gray-300 text-gray-500 bg-white whitespace-nowrap">
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <Image src="/Icon.png" alt="" width={11} height={11} />
       Frozen
     </span>
   );
@@ -77,13 +84,10 @@ function VerifBadge({ status, label: forceLabel }: { status: string | null; labe
   const isAction   = s === 'action_required';
   const color = isVerified ? '#339D88' : isRejected ? '#FF756B' : isAction ? '#DC6803' : '#9E4300';
   const label = forceLabel ?? (isVerified ? 'Verified' : isRejected ? 'Rejected' : isAction ? 'Action Req.' : s === 'not_started' ? 'Not Started' : 'Pending');
+  const icon = isVerified ? '/Verified.png' : isRejected ? '/Icon (1).png' : '/Clock.png';
   return (
     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border whitespace-nowrap bg-white" style={{ borderColor: color, color }}>
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-        <circle cx="12" cy="12" r="10"/>
-        {isVerified && <path d="m9 12 2 2 4-4"/>}
-        {!isVerified && <path d="M12 8v4m0 4h.01"/>}
-      </svg>
+      <Image src={icon} alt="" width={11} height={11} />
       {label}
     </span>
   );
@@ -128,7 +132,7 @@ function Pagination({ current, total, onChange }: { current: number; total: numb
         ? <span key={`d${i}`} className="w-7 h-7 flex items-center justify-center text-sm text-gray-400">…</span>
         : <button key={p} onClick={() => onChange(p as number)}
             className="w-7 h-7 flex items-center justify-center rounded text-sm font-medium border transition-colors"
-            style={p === current ? { backgroundColor: '#012D32', color: 'white', borderColor: '#012D32' } : { borderColor: '#E5E7EB', color: '#374151' }}>
+            style={p === current ? { backgroundColor: '#009F51', color: 'white', borderColor: '#009F51' } : { borderColor: '#E5E7EB', color: '#374151' }}>
             {p}
           </button>
       )}
@@ -218,7 +222,7 @@ export default function UsersPage() {
   const totalPages = pagination?.meta?.last_page ?? 1;
 
   return (
-    <div className="flex h-screen bg-white font-['DM_Sans']">
+    <div className="flex h-screen bg-white" style={FONT}>
       <Sidebar />
       <main className="flex-1 flex flex-col overflow-hidden min-w-0">
 
@@ -232,32 +236,37 @@ export default function UsersPage() {
 
           {/* Filters row */}
           <div className="flex items-center gap-3">
-            <div className="relative flex-1 max-w-lg">
-              <svg className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <div className="relative w-full max-w-lg">
+              <Image src="/Magnifer.png" alt="" width={15} height={15} className="absolute left-4 top-1/2 -translate-y-1/2" />
               <input type="text" value={search} onChange={e => handleSearch(e.target.value)}
                 placeholder="Search by name, email or Changpay ID..."
-                className="w-full pl-10 pr-4 py-2.5 text-sm bg-[#F8F9FA] border border-gray-200 rounded-full text-gray-700 placeholder-gray-400 focus:outline-none focus:border-gray-400 shadow-sm"/>
+                className="w-full pl-10 pr-4 py-2.5 text-sm border rounded-full text-gray-700 placeholder-[#A8B0B5] focus:outline-none focus:border-gray-400 shadow-sm"
+                style={{ backgroundColor: '#F8F9FA', borderColor: '#E1E4E6' }}/>
             </div>
-            <select value={statusFilter} onChange={e => handleStatusFilter(e.target.value)}
-              className="px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 shrink-0">
-              <option value="">All Status</option>
-              <option value="active">Active</option>
-              <option value="inactive">Frozen</option>
-            </select>
-            <select value={kycFilter} onChange={e => handleKycFilter(e.target.value)}
-              className="px-3 py-2.5 text-sm border border-gray-200 rounded-xl bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 shrink-0">
-              <option value="">All KYC</option>
-              <option value="approved">Approved</option>
-              <option value="pending">Pending</option>
-              <option value="rejected">Rejected</option>
-              <option value="not_started">Not Started</option>
-            </select>
-            <button onClick={() => exportUsersCSV(users)}
-              className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-white rounded-xl shrink-0"
-              style={{ backgroundColor: '#009F51' }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Export
-            </button>
+            <div className="flex items-center gap-3 ml-auto shrink-0">
+              <select value={statusFilter} onChange={e => handleStatusFilter(e.target.value)}
+                className="px-3 py-2.5 text-sm border rounded-full text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 shrink-0"
+                style={{ backgroundColor: '#F8F9FA', borderColor: '#E1E4E6' }}>
+                <option value="">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Frozen</option>
+              </select>
+              <select value={kycFilter} onChange={e => handleKycFilter(e.target.value)}
+                className="px-3 py-2.5 text-sm border rounded-full text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 shrink-0"
+                style={{ backgroundColor: '#F8F9FA', borderColor: '#E1E4E6' }}>
+                <option value="">All KYC</option>
+                <option value="approved">Approved</option>
+                <option value="pending">Pending</option>
+                <option value="rejected">Rejected</option>
+                <option value="not_started">Not Started</option>
+              </select>
+              <button onClick={() => exportUsersCSV(users)}
+                className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-white rounded-full shrink-0"
+                style={{ backgroundColor: '#009F51' }}>
+                <Image src="/exportIcon.png" alt="" width={15} height={15} />
+                Export
+              </button>
+            </div>
           </div>
 
           {/* Stat cards — match Figma exactly */}
@@ -268,7 +277,7 @@ export default function UsersPage() {
               { label: 'KYC Verified', val: String(verifiedCount), cls: 'text-emerald-500' },
               { label: 'KYC Pending', val: String(pendingCount), cls: 'text-orange-500' },
             ].map(s => (
-              <div key={s.label} className="bg-[#F8F9FA] rounded-xl border border-gray-200 p-5">
+              <div key={s.label} className="bg-[#F8F9FA] rounded-xl p-5">
                 <p className="text-xs text-gray-500 font-medium mb-2">{s.label}</p>
                 {isLoading ? <div className="animate-pulse bg-gray-100 h-9 w-24 rounded"/> :
                   <p className={`text-3xl font-bold ${s.cls}`}>{s.val}</p>}
@@ -282,26 +291,25 @@ export default function UsersPage() {
               <table className="w-full text-sm min-w-[1300px]">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
-                    {['User','Changpay ID','Status','KYC','KYB','Email Verified','USD Balance','NGN Balance','YUAN Balance','Joined','Last Login','Action'].map(h => (
-                      <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap first:pl-6 last:pr-6">
+                    {['User','Status','KYC','USD Balance','NGN Balance','YUAN Balance','Last Login','Action'].map(h => (
+                      <th key={h} className="px-4 py-3 text-left whitespace-nowrap first:pl-6 last:pr-6"
+                        style={{ ...FONT, color: '#6A7377', fontWeight: 400, fontSize: '14.67px', lineHeight: '150%', letterSpacing: '0.02em' }}>
                         {h}
                       </th>
                     ))}
                   </tr>
                 </thead>
-                
+
                 <tbody className="bg-white divide-y divide-gray-100">
                   {isLoading ? (
                     [...Array(8)].map((_, i) => (
                       <tr key={i}>
-                        {[...Array(12)].map((_, j) => <td key={j} className="px-4 py-3.5"><Sk/></td>)}
+                        {[...Array(8)].map((_, j) => <td key={j} className="px-4 py-3.5"><Sk/></td>)}
                       </tr>
                     ))
                   ) : users.length === 0 ? (
-                    <tr><td colSpan={12} className="px-4 py-12 text-center text-sm text-gray-400">No users found</td></tr>
+                    <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">No users found</td></tr>
                   ) : users.map(user => {
-                    const emailVerified = user.emailVerified;
-                    const joined = user.createdAt ?? user.created_at;
                     return (
                     <tr key={user.id} className="hover:bg-gray-50/60 transition-colors">
                       {/* User */}
@@ -309,16 +317,12 @@ export default function UsersPage() {
                         <div className="flex items-center gap-2.5">
                           <Avatar user={user}/>
                           <div>
-                            <p className="text-sm font-semibold text-gray-900 leading-tight">
-                              {[user.firstName ?? user.first_name, user.lastName ?? user.last_name].filter(Boolean).join(' ') || '—'}
+                            <p style={CELL_TEXT} className="leading-tight">
+                              {toTitleCase([user.firstName ?? user.first_name, user.lastName ?? user.last_name].filter(Boolean).join(' ')) || '—'}
                             </p>
                             <p className="text-[11px] text-gray-400">{user.email}</p>
                           </div>
                         </div>
-                      </td>
-                      {/* Changpay ID */}
-                      <td className="px-4 py-3.5 whitespace-nowrap">
-                        <span className="text-xs font-mono font-medium text-gray-700">{user.changpayId ?? user.changpay_id ?? '—'}</span>
                       </td>
                       {/* Status */}
                       <td className="px-4 py-3.5 whitespace-nowrap">
@@ -328,30 +332,10 @@ export default function UsersPage() {
                       </td>
                       {/* KYC */}
                       <td className="px-4 py-3.5 whitespace-nowrap"><VerifBadge status={user.kycStatus ?? user.kyc_status}/></td>
-                      {/* KYB */}
-                      <td className="px-4 py-3.5 whitespace-nowrap"><VerifBadge status={user.kybStatus ?? user.kyb_status}/></td>
-                      {/* Email Verified */}
-                      <td className="px-4 py-3.5 whitespace-nowrap">
-                        {emailVerified == null
-                          ? <span className="text-gray-400 text-sm">—</span>
-                          : emailVerified
-                            ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 6 9 17l-5-5"/></svg>Verified</span>
-                            : <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 8v4m0 4h.01"/><circle cx="12" cy="12" r="10"/></svg>Unverified</span>
-                        }
-                      </td>
                       {/* Balances */}
                       <td className="px-4 py-3.5 whitespace-nowrap"><Bal value={user.balances?.USD} flag="🇺🇸" symbol="$"/></td>
                       <td className="px-4 py-3.5 whitespace-nowrap"><Bal value={user.balances?.NGN} flag="🇳🇬" symbol="₦"/></td>
                       <td className="px-4 py-3.5 whitespace-nowrap"><Bal value={user.balances?.YAN} flag="🇨🇳" symbol="¥"/></td>
-                      {/* Joined */}
-                      <td className="px-4 py-3.5 whitespace-nowrap">
-                        {joined
-                          ? <div>
-                              <p className="text-xs text-gray-800 font-medium">{new Date(joined).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</p>
-                              <p className="text-[11px] text-gray-400">{timeAgo(joined)}</p>
-                            </div>
-                          : <span className="text-gray-400 text-sm">—</span>}
-                      </td>
                       {/* Last Login */}
                       <td className="px-4 py-3.5 whitespace-nowrap">
                         {(user.lastLoginAt ?? user.last_login_at)
