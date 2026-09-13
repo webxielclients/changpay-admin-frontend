@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 import { transactionsApi } from '@/lib/api/client';
 import type {
@@ -11,23 +12,32 @@ import type {
 } from '@/lib/api/client';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
+import Image from 'next/image';
 
 type TabType = 'overview' | 'conversions';
 type ProductFilter = '' | 'crypto' | 'pay-china' | 'gift-card';
 
+const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif" };
+const INTER_TIGHT = { fontFamily: "'Inter Tight', -apple-system, BlinkMacSystemFont, system-ui, sans-serif" };
+
 /* ── Helpers ── */
 function fmtDT(s?: string | null) {
   if (!s) return '—';
-  return new Date(s).toLocaleString('en-US', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  }).replace(',', '');
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return '—';
+  const day = d.toLocaleDateString('en-US', { day: 'numeric' });
+  const month = d.toLocaleDateString('en-US', { month: 'short' });
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase().replace(' ', '');
+  return `${day} ${month}, ${time}`;
 }
 function fmtGMT(s?: string | null) {
   if (!s) return '—';
   return new Date(s).toUTCString().replace('GMT', 'GMT');
 }
 function dash(v: any) { return (v == null || v === '') ? '—' : String(v); }
+function toTitleCase(name: string): string {
+  return name.toLowerCase().replace(/(^|\s|-)\S/g, (c) => c.toUpperCase());
+}
 function currencySymbol(c?: string) {
   const code = (c ?? '').toUpperCase();
   if (code === 'YAN' || code === 'CNY' || code === 'YUAN') return '¥';
@@ -46,20 +56,20 @@ function fmtPayoutMethod(m?: string) {
 /* ── STATUS BADGE — Figma outlined ── */
 function StatusBadge({ status }: { status?: string }) {
   const s = (status ?? '').toLowerCase().replace(/[\s_-]+/g, '');
-  const cfg =
+  const style: React.CSSProperties =
     s === 'completed' || s === 'success' || s === 'paid'
-      ? 'border-emerald-500 text-emerald-600' :
+      ? { color: '#009F51', borderColor: '#009F51', backgroundColor: '#E1F7EB' } :
     s === 'confirming' || s === 'ongoing' || s === 'onging'
-      ? 'border-blue-500 text-blue-600' :
+      ? { color: '#339D88', borderColor: '#339D88', backgroundColor: '#EFFEFA' } :
     s === 'processing'
-      ? 'border-orange-400 text-orange-600' :
+      ? { color: '#FFD379', borderColor: '#FFD379', backgroundColor: '#FFD37933' } :
     s === 'pending'
-      ? 'border-amber-500 text-amber-600' :
+      ? { color: '#D97706', borderColor: '#D97706', backgroundColor: '#FFFBEB' } :
     s === 'failed' || s === 'rejected' || s === 'refunded' || s === 'returned'
-      ? 'border-red-500 text-red-600' :
-    'border-gray-300 text-gray-500';
+      ? { color: '#FF756B', borderColor: '#FF756B', backgroundColor: '#FF756B1A' } :
+    { color: '#A8B0B5', borderColor: '#A8B0B5', backgroundColor: '#F8F9FA' };
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border bg-white whitespace-nowrap ${cfg}`}>
+    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border whitespace-nowrap" style={style}>
       {status ?? '—'}
     </span>
   );
@@ -68,9 +78,9 @@ function StatusBadge({ status }: { status?: string }) {
 /* ── RISK BADGE ── */
 function RiskBadge({ risk }: { risk?: string }) {
   const r = (risk ?? 'none').toLowerCase();
-  if (r === 'high') return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-500 text-white">High</span>;
-  if (r === 'medium') return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-400 text-white">Medium</span>;
-  return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-gray-300 text-gray-500 bg-white">None</span>;
+  if (r === 'high') return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border" style={{ color: '#FF756B', borderColor: '#FF756B', backgroundColor: '#FF756B1A' }}>High</span>;
+  if (r === 'medium') return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border" style={{ color: '#FFD379', borderColor: '#FFD379', backgroundColor: '#FFD37933' }}>Medium</span>;
+  return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border" style={{ color: '#A8B0B5', borderColor: '#A8B0B5', backgroundColor: '#F8F9FA' }}>None</span>;
 }
 
 /* ── AVATAR ── */
@@ -117,7 +127,7 @@ function Pagination({ current, total, onChange }: { current: number; total: numb
         ? <span key={`d${i}`} className="w-7 h-7 flex items-center justify-center text-sm text-gray-400">…</span>
         : <button key={p} onClick={() => onChange(p as number)}
             className="w-7 h-7 flex items-center justify-center rounded text-sm font-medium border transition-colors"
-            style={p === current ? { backgroundColor: '#012D32', color: 'white', borderColor: '#012D32' } : { borderColor: '#E5E7EB', color: '#374151' }}>
+            style={p === current ? { backgroundColor: '#009F51', color: 'white', borderColor: '#009F51' } : { borderColor: '#E5E7EB', color: '#374151' }}>
             {p}
           </button>
       )}
@@ -141,7 +151,8 @@ function TableShell({ headers, loading, empty, emptyMsg, children, from, to, tot
           <thead>
             <tr className="bg-[#F8F9FA] border-b border-gray-200">
               {headers.map(h => (
-                <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap first:pl-6 last:pr-6">{h}</th>
+                <th key={h} className="px-4 py-3 text-left whitespace-nowrap first:pl-6 last:pr-6"
+                  style={{ ...FONT, color: '#6B7280', fontWeight: 400, fontSize: 14, lineHeight: '150%', letterSpacing: '0.02em' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -155,7 +166,7 @@ function TableShell({ headers, loading, empty, emptyMsg, children, from, to, tot
         </table>
       </div>
       <div className="px-6 py-3.5 border-t border-gray-100 bg-white flex items-center justify-between">
-        <p className="text-xs text-gray-500">
+        <p style={{ ...INTER_TIGHT, color: '#6B7280', fontWeight: 500, fontSize: '14.67px', lineHeight: '150%', letterSpacing: '0.02em', textAlign: 'center' }}>
           {total != null ? `Showing ${from ?? 1} to ${to ?? 0} of ${total.toLocaleString()} results` : ''}
         </p>
         <Pagination current={page} total={lastPage} onChange={onPage}/>
@@ -169,7 +180,7 @@ function StatCard({ label, value, valueColor = 'text-gray-900', sub, loading, bg
   label: string; value: string | number; valueColor?: string; sub?: string; loading?: boolean; bg?: string;
 }) {
   return (
-    <div className="rounded-xl border border-gray-100 p-5" style={{ backgroundColor: bg }}>
+    <div className="rounded-xl p-5" style={{ backgroundColor: bg }}>
       <p className="text-xs text-gray-500 mb-2">{label}</p>
       {loading ? <Sk/> : <p className={`text-2xl font-bold ${valueColor}`}>{value}</p>}
       {sub && <p className="text-[11px] text-gray-400 mt-1">{sub}</p>}
@@ -247,18 +258,6 @@ function DetailPanel({ txId, product, onClose }: PanelProps) {
   const handleMarkManualReview = async () => {
     try { setActing(true); await transactionsApi.markManualReview(txId); onClose(); }
     catch (e) { setErr(e instanceof Error ? e.message : 'Failed to mark for manual review'); }
-    finally { setActing(false); }
-  };
-
-  const handleDownloadReceipt = async () => {
-    try {
-      setActing(true);
-      const blob = await transactionsApi.downloadReceipt(txId);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `receipt-${data?.reference ?? txId}.pdf`; a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) { setErr(e instanceof Error ? e.message : 'Failed to download receipt'); }
     finally { setActing(false); }
   };
 
@@ -525,10 +524,10 @@ function DetailPanel({ txId, product, onClose }: PanelProps) {
                 {acting ? 'Processing…' : 'Mark as Manual Review'}
               </button>
             </div>
-            <button onClick={handleDownloadReceipt} disabled={acting}
-              className="w-full py-2.5 rounded-xl text-sm font-semibold text-white transition-colors disabled:opacity-50"
+            <button disabled title="Receipt downloads aren't available yet"
+              className="w-full py-2.5 rounded-xl text-sm font-semibold text-white transition-colors opacity-50 cursor-not-allowed"
               style={{ backgroundColor: '#009F51' }}>
-              {acting ? 'Processing…' : 'Download Receipt'}
+              Download Receipt · Coming soon
             </button>
           </div>
         )}
@@ -541,15 +540,15 @@ function DetailPanel({ txId, product, onClose }: PanelProps) {
    FILTER BAR — full-width, matches Figma
 ═══════════════════════════════════════════ */
 const ARROW = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`;
-const dropCls = "pl-3 pr-8 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-600 bg-white focus:outline-none focus:border-gray-400 appearance-none cursor-pointer shrink-0";
-const dropStyle = { backgroundImage: ARROW, backgroundRepeat: 'no-repeat' as const, backgroundPosition: 'right 10px center' };
+const dropCls = "px-4 text-sm border rounded-full text-gray-600 bg-[#F8F9FA] focus:outline-none focus:border-gray-400 appearance-none cursor-pointer shrink-0";
+const dropStyle = { backgroundColor: '#F8F9FA', backgroundImage: ARROW, backgroundRepeat: 'no-repeat' as const, backgroundPosition: 'right 14px center', borderColor: '#E1E4E6', width: 172, height: 48, borderWidth: 1 };
 
-function FilterBar({ product, setProduct, status, setStatus, search, setSearch, dateFrom, setDateFrom, dateTo, setDateTo, onExport }: {
+function FilterBar({ product, setProduct, status, setStatus, search, setSearch, dateFrom, setDateFrom, risk, setRisk, onExport }: {
   product: ProductFilter; setProduct: (v: ProductFilter) => void;
   status: string; setStatus: (v: string) => void;
   search: string; setSearch: (v: string) => void;
   dateFrom: string; setDateFrom: (v: string) => void;
-  dateTo: string; setDateTo: (v: string) => void;
+  risk: string; setRisk: (v: string) => void;
   onExport?: () => void;
 }) {
   return (
@@ -559,7 +558,8 @@ function FilterBar({ product, setProduct, status, setStatus, search, setSearch, 
         <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
         <input type="text" value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Search by name, wallet ID or transaction ID..."
-          className="w-full pl-10 pr-4 py-2.5 text-sm bg-white border border-gray-200 rounded-full text-gray-700 placeholder-gray-400 focus:outline-none focus:border-gray-400"/>
+          className="w-full pl-10 pr-4 py-2.5 text-sm bg-[#F8F9FA] border rounded-full text-gray-700 placeholder-gray-400 focus:outline-none focus:border-gray-400"
+          style={{ backgroundColor: '#F8F9FA', borderColor: '#E1E4E6', height: 48 }}/>
       </div>
       {/* Product */}
       <select value={product} onChange={e => setProduct(e.target.value as ProductFilter)} className={dropCls} style={dropStyle}>
@@ -567,34 +567,43 @@ function FilterBar({ product, setProduct, status, setStatus, search, setSearch, 
         <option value="crypto">Crypto → Cash</option>
         <option value="pay-china">Payment to China</option>
       </select>
-      {/* Status */}
+      {/* Status — options scoped to what the active product's endpoint actually accepts */}
       <select value={status} onChange={e => setStatus(e.target.value)} className={dropCls} style={dropStyle}>
         <option value="">All Status</option>
         <option value="completed">Completed</option>
-        <option value="pending">Pending</option>
         <option value="processing">Processing</option>
         <option value="failed">Failed</option>
-        <option value="confirming">Confirming</option>
-        <option value="refunded">Refunded</option>
-        <option value="on-going">On Going</option>
+        {product === 'crypto' && (
+          <>
+            <option value="pending">Pending</option>
+            <option value="confirming">On Going</option>
+            <option value="refunded">Refunded</option>
+          </>
+        )}
+        {product === 'pay-china' && (
+          <option value="pending">Pending</option>
+        )}
       </select>
-      {/* Date From */}
+      {/* Date */}
       <div className="relative shrink-0">
-        <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+        <Image src="/cal.png" alt="" width={16} height={16} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
         <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-          className="pl-7 pr-2 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400 shrink-0" />
+          placeholder="mm/dd/yyyy"
+          className="pl-9 pr-3 text-sm border rounded-full text-gray-600 bg-[#F8F9FA] focus:outline-none focus:border-gray-400 shrink-0"
+          style={{ backgroundColor: '#F8F9FA', borderColor: '#E1E4E6', width: 172, height: 48, borderWidth: 1 }} />
       </div>
-      {/* Date To */}
-      <div className="relative shrink-0">
-        <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-          className="pl-7 pr-2 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400 shrink-0" />
-      </div>
+      {/* Risk Flag */}
+      <select value={risk} onChange={e => setRisk(e.target.value)} className={dropCls} style={dropStyle}>
+        <option value="">Risk Flag</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="none">None</option>
+      </select>
       {/* Export */}
       {onExport && (
         <button onClick={onExport}
-          className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-white rounded-xl shrink-0"
-          style={{ backgroundColor: '#009F51' }}>
+          className="flex items-center gap-2 px-4 text-sm font-semibold text-white rounded-full shrink-0"
+          style={{ backgroundColor: '#009F51', height: 48 }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Export
         </button>
@@ -606,8 +615,9 @@ function FilterBar({ product, setProduct, status, setStatus, search, setSearch, 
 /* ═══════════════════════════════════════════
    PAGE
 ═══════════════════════════════════════════ */
-export default function TransactionsPage() {
+function TransactionsPageInner() {
   const { isAuthenticated } = useAuthStore();
+  const searchParams = useSearchParams();
 
   /* ── Shared filter state ── */
   const [tab, setTab] = useState<TabType>('overview');
@@ -622,7 +632,7 @@ export default function TransactionsPage() {
   const [loadingAll, setLoadingAll] = useState(true);
   const [loadingAllStats, setLoadingAllStats] = useState(true);
   const [allPage, setAllPage] = useState(1);
-  const [allStatus, setAllStatus] = useState('');
+  const [allStatus, setAllStatus] = useState(() => searchParams.get('status') ?? '');
   const [allSearch, setAllSearch] = useState('');
 
   /* ── Crypto state ── */
@@ -665,6 +675,7 @@ export default function TransactionsPage() {
   /* ── Date range filters ── */
   const [overviewDateFrom, setOverviewDateFrom] = useState('');
   const [overviewDateTo,   setOverviewDateTo]   = useState('');
+  const [overviewRisk,     setOverviewRisk]     = useState(() => searchParams.get('risk') ?? '');
   const [convDateFrom,     setConvDateFrom]     = useState('');
   const [convDateTo,       setConvDateTo]       = useState('');
 
@@ -734,7 +745,7 @@ export default function TransactionsPage() {
   /* ── Effects ── */
   useEffect(() => {
     if (!isAuthenticated) return;
-    fetchAllStats(); fetchAll(1, '', '');
+    fetchAllStats();
     fetchConvStats(); fetchConv(1, '', '');
   }, [isAuthenticated]);
 
@@ -781,11 +792,6 @@ export default function TransactionsPage() {
     setAllPage(1);
   };
 
-  const handleOverviewDateTo = (v: string) => {
-    setOverviewDateTo(v);
-    fetchAll(1, allSearch, allStatus, overviewDateFrom, v);
-    setAllPage(1);
-  };
 
   const handleSearchChange = (q: string) => {
     setSharedSearch(q);
@@ -805,18 +811,16 @@ export default function TransactionsPage() {
     <div className="flex border-b border-gray-200 mb-0">
       {(['overview','conversions'] as TabType[]).map(t => (
         <button key={t} onClick={() => setTab(t)}
-          className={`px-8 py-3.5 text-sm font-semibold capitalize transition-colors relative ${tab === t ? 'text-emerald-600' : 'text-gray-500 hover:text-gray-700'}`}>
+          className={`flex-1 py-3.5 text-center text-sm font-semibold capitalize transition-colors relative ${tab === t ? 'text-emerald-600' : 'text-gray-500 hover:text-gray-700'}`}>
           {t === 'overview' ? 'Overview' : 'Conversions'}
           {tab === t && <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full" style={{ backgroundColor: '#009F51' }}/>}
         </button>
       ))}
-      {/* Full-width underline */}
-      <div className="flex-1 border-b border-gray-200 -mb-px"/>
     </div>
   );
 
   return (
-    <div className="flex h-screen bg-white font-['DM_Sans']">
+    <div className="flex h-screen bg-white" style={FONT}>
       <Sidebar/>
       <main className="flex-1 flex flex-col overflow-hidden min-w-0">
 
@@ -844,7 +848,7 @@ export default function TransactionsPage() {
                   status={sharedStatus} setStatus={handleStatusChange}
                   search={sharedSearch} setSearch={handleSearchChange}
                   dateFrom={overviewDateFrom} setDateFrom={handleOverviewDateFrom}
-                  dateTo={overviewDateTo} setDateTo={handleOverviewDateTo}
+                  risk={overviewRisk} setRisk={setOverviewRisk}
                   onExport={() => {
                     const active = product === 'crypto' ? cryptoTxs : product === 'pay-china' ? chinaTxs : allTxs;
                     exportTxCSV(active, product || 'transactions');
@@ -863,28 +867,31 @@ export default function TransactionsPage() {
                       <StatCard label="Failed" value={allStats?.failed ?? 0} valueColor="text-red-600" loading={loadingAllStats}/>
                     </div>
                     <TableShell
-                      headers={['Txn ID','Client Name','Type','Channel / Asset','Amount','Status','Date/time','Risk','Action']}
+                      headers={['Txn ID','Client Name','Type','Channel / Asset','Amount','Rate','Status','Date/time','Risk','Action']}
                       loading={loadingAll} empty={allTxs.length === 0}
                       from={allPag?.from} to={allPag?.to} total={allPag?.total}
                       page={allPage} lastPage={allPag?.last_page ?? 1} onPage={setAllPage}>
-                      {allTxs.map(tx => {
+                      {allTxs.filter(tx => !overviewRisk || ((tx as any).risk ?? 'none').toLowerCase() === overviewRisk).map(tx => {
                         const u = (tx as any).user ?? {};
-                        const name = [u.firstName ?? u.first_name, u.lastName ?? u.last_name].filter(Boolean).join(' ') || u.email || '—';
-                        const isIncome = (tx.category ?? '').toLowerCase() === 'income' || tx.type === 'deposit';
+                        const name = toTitleCase([u.firstName ?? u.first_name, u.lastName ?? u.last_name].filter(Boolean).join(' ')) || u.email || '—';
                         return (
                           <tr key={tx.id} className="hover:bg-gray-50/60 transition-colors">
-                            <td className="px-4 py-3.5 pl-6 font-mono text-xs text-gray-700 whitespace-nowrap">{String(tx.reference ?? tx.id).slice(0,9)}</td>
+                            <td className="px-4 py-3.5 pl-6 whitespace-nowrap" style={{ ...FONT, color: '#1A1D1F', fontWeight: 600, fontSize: 14, lineHeight: '150%', letterSpacing: '0.02em' }}>{String(tx.reference ?? tx.id).slice(0,9)}</td>
                             <td className="px-4 py-3.5 whitespace-nowrap">
                               <div className="flex items-center gap-2.5">
                                 <Avatar name={name} uid={tx.id} avatarUrl={u.avatarUrl ?? u.avatar_url}/>
-                                <div><p className="text-sm font-semibold text-gray-900 leading-tight">{name}</p><p className="text-[11px] text-gray-400">{u.changpayId ?? u.changpay_id ?? ''}</p></div>
+                                <div>
+                                  <p style={{ ...FONT, color: '#1A1D1F', fontWeight: 500, fontSize: '14.67px', lineHeight: '150%', letterSpacing: '0.02em' }} className="leading-tight">{name}</p>
+                                  <p className="text-[11px] text-gray-400">{u.changpayId ?? u.changpay_id ?? ''}</p>
+                                </div>
                               </div>
                             </td>
                             <td className="px-4 py-3.5 text-sm text-gray-600 capitalize whitespace-nowrap">{tx.type ?? '—'}</td>
                             <td className="px-4 py-3.5 text-sm text-gray-600 whitespace-nowrap">{tx.currency ?? '—'}</td>
                             <td className="px-4 py-3.5 whitespace-nowrap">
-                              <span className="text-sm font-semibold" style={{ color: isIncome ? '#009F51' : '#FF756B' }}>{tx.amount ?? '—'}</span>
+                              <span className="text-sm font-semibold" style={{ color: '#1A1D1F' }}>{tx.amount ?? '—'}</span>
                             </td>
+                            <td className="px-4 py-3.5 text-sm text-gray-600 whitespace-nowrap">0</td>
                             <td className="px-4 py-3.5 whitespace-nowrap"><StatusBadge status={tx.status}/></td>
                             <td className="px-4 py-3.5 text-xs text-gray-500 whitespace-nowrap">{fmtDT(tx.createdAt)}</td>
                             <td className="px-4 py-3.5 whitespace-nowrap"><RiskBadge risk={(tx as any).risk}/></td>
@@ -916,7 +923,7 @@ export default function TransactionsPage() {
                       page={cryptoPage} lastPage={cryptoPag?.last_page ?? 1} onPage={setCryptoPage}>
                       {cryptoTxs.map(tx => {
                         const u = (tx as any).user ?? {};
-                        const name = [u.firstName ?? u.first_name, u.lastName ?? u.last_name].filter(Boolean).join(' ') || u.email || '—';
+                        const name = toTitleCase([u.firstName ?? u.first_name, u.lastName ?? u.last_name].filter(Boolean).join(' ')) || u.email || '—';
                         const confs = (tx as any).confirmations;
                         const totalConfs = (tx as any).requiredConfirmations ?? (tx as any).total_confirmations;
                         return (
@@ -1049,7 +1056,8 @@ export default function TransactionsPage() {
                     <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                     <input type="text" value={convSearch} onChange={e => { setConvSearch(e.target.value); deb(() => { setConvPage(1); fetchConv(1, e.target.value, convStatus, convDateFrom, convDateTo); }); }}
                       placeholder="Search by name, wallet ID or transaction ID..."
-                      className="w-full pl-10 pr-4 py-2.5 text-sm bg-white border border-gray-200 rounded-full placeholder-gray-400 focus:outline-none focus:border-gray-400"/>
+                      className="w-full pl-10 pr-4 py-2.5 text-sm bg-[#F8F9FA] border rounded-full placeholder-gray-400 focus:outline-none focus:border-gray-400"
+                      style={{ backgroundColor: '#F8F9FA', borderColor: '#E1E4E6', height: 48 }}/>
                   </div>
                   <select value={convStatus} onChange={e => { setConvStatus(e.target.value); setConvPage(1); fetchConv(1, convSearch, e.target.value, convDateFrom, convDateTo); }}
                     className={dropCls} style={dropStyle}>
@@ -1059,35 +1067,37 @@ export default function TransactionsPage() {
                     <option value="failed">Failed</option>
                   </select>
                   <div className="relative shrink-0">
-                    <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                    <Image src="/cal.png" alt="" width={16} height={16} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input type="date" value={convDateFrom} onChange={e => { setConvDateFrom(e.target.value); setConvPage(1); fetchConv(1, convSearch, convStatus, e.target.value, convDateTo); }}
-                      className="pl-7 pr-2 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+                      className="pl-9 pr-3 text-sm border rounded-full text-gray-600 bg-[#F8F9FA] focus:outline-none focus:border-gray-400"
+                      style={{ backgroundColor: '#F8F9FA', borderColor: '#E1E4E6', width: 172, height: 48, borderWidth: 1 }} />
                   </div>
                   <div className="relative shrink-0">
-                    <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                    <Image src="/cal.png" alt="" width={16} height={16} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input type="date" value={convDateTo} onChange={e => { setConvDateTo(e.target.value); setConvPage(1); fetchConv(1, convSearch, convStatus, convDateFrom, e.target.value); }}
-                      className="pl-7 pr-2 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+                      className="pl-9 pr-3 text-sm border rounded-full text-gray-600 bg-[#F8F9FA] focus:outline-none focus:border-gray-400"
+                      style={{ backgroundColor: '#F8F9FA', borderColor: '#E1E4E6', width: 172, height: 48, borderWidth: 1 }} />
                   </div>
                 </div>
 
                 {/* Conversions stat cards — Figma exact colors */}
                 <div className="grid grid-cols-4 gap-4 mb-5">
-                  <div className="rounded-xl border border-gray-100 p-5" style={{ backgroundColor: '#009F511A' }}>
+                  <div className="rounded-xl p-5" style={{ backgroundColor: '#009F511A' }}>
                     <p className="text-xs mb-2" style={{ color: '#009F51' }}>Total Conversions</p>
                     <p className="text-2xl font-bold" style={{ color: '#009F51' }}>{loadingConvStats ? '—' : (convStats?.total_count ?? '—')}</p>
                     <p className="text-[11px] text-gray-400 mt-1">Last 24 hours</p>
                   </div>
-                  <div className="rounded-xl border border-gray-100 p-5" style={{ backgroundColor: '#0274D81A' }}>
+                  <div className="rounded-xl p-5" style={{ backgroundColor: '#0274D81A' }}>
                     <p className="text-xs mb-2" style={{ color: '#0274D8' }}>Total Volume</p>
                     <p className="text-2xl font-bold" style={{ color: '#0274D8' }}>{loadingConvStats ? '—' : (convStats?.total_volume ?? '—')}</p>
                     <p className="text-[11px] text-gray-400 mt-1">All currencies</p>
                   </div>
-                  <div className="rounded-xl border border-gray-100 p-5" style={{ backgroundColor: '#A585E81A' }}>
+                  <div className="rounded-xl p-5" style={{ backgroundColor: '#A585E81A' }}>
                     <p className="text-xs mb-2" style={{ color: '#A585E8' }}>Avg Conversion</p>
                     <p className="text-2xl font-bold" style={{ color: '#A585E8' }}>{loadingConvStats ? '—' : ((convStats as any)?.avg_conversion ?? '—')}</p>
                     <p className="text-[11px] text-gray-400 mt-1">Per transaction</p>
                   </div>
-                  <div className="rounded-xl border border-gray-100 p-5" style={{ backgroundColor: '#F2C04C1A' }}>
+                  <div className="rounded-xl p-5" style={{ backgroundColor: '#F2C04C1A' }}>
                     <p className="text-xs mb-2" style={{ color: '#F2C04C' }}>Total Fees</p>
                     <p className="text-2xl font-bold" style={{ color: '#F2C04C' }}>{loadingConvStats ? '—' : ((convStats as any)?.total_fees ?? '—')}</p>
                     <p className="text-[11px] text-gray-400 mt-1">Revenue earned</p>
@@ -1102,7 +1112,7 @@ export default function TransactionsPage() {
                   page={convPage} lastPage={convPag?.last_page ?? 1} onPage={setConvPage}>
                   {convTxs.map(tx => {
                     const u = (tx as any).user ?? {};
-                    const name = [u.firstName ?? u.first_name, u.lastName ?? u.last_name].filter(Boolean).join(' ') || u.email || '—';
+                    const name = toTitleCase([u.firstName ?? u.first_name, u.lastName ?? u.last_name].filter(Boolean).join(' ')) || u.email || '—';
                     const fromCur = (tx as any).fromCurrency ?? '';
                     const toCur = (tx as any).toCurrency ?? '';
                     return (
@@ -1144,5 +1154,13 @@ export default function TransactionsPage() {
       {/* Detail panel */}
       {panel && <DetailPanel txId={panel.id} product={panel.product} onClose={() => setPanel(null)}/>}
     </div>
+  );
+}
+
+export default function TransactionsPage() {
+  return (
+    <Suspense fallback={null}>
+      <TransactionsPageInner />
+    </Suspense>
   );
 }

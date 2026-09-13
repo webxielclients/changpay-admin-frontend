@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 import { banksApi } from '@/lib/api/client';
 import type {
@@ -12,6 +13,9 @@ import type {
 } from '@/lib/api/client';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
+import Image from 'next/image';
+
+const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif" };
 
 type TabType = 'bank-status' | 'payout' | 'handshake';
 
@@ -20,22 +24,43 @@ function Skeleton({ className }: { className?: string }) {
   return <div className={`animate-pulse bg-gray-100 rounded-lg ${className ?? ''}`} />;
 }
 
+// ─── Timestamp helpers ──────────────────────────────────────────────────────
+function fmtDateExact(s: string) {
+  const d = new Date(s);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase().replace(' ', '');
+  return `${y}-${m}-${day} ${time}`;
+}
+
+function timeAgo(s: string) {
+  const diff = Date.now() - new Date(s).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min${mins !== 1 ? 's' : ''} ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hr${hours !== 1 ? 's' : ''} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days !== 1 ? 's' : ''} ago`;
+}
+
 // ─── Status badge ──────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
   const s = status?.toLowerCase();
-  const styles =
+  const style =
     s === 'online' || s === 'success' || s === 'completed' || s === 'active'
-      ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+      ? { backgroundColor: '#E1F7EB', color: '#009F51', borderColor: '#009F51' }
       : s === 'failed' || s === 'offline' || s === 'inactive'
-      ? 'bg-red-50 text-red-600 border-red-300'
+      ? { backgroundColor: '#FF756B1A', color: '#FF756B', borderColor: '#FF756B' }
       : s === 'warning' || s === 'pending' || s === 'processing'
-      ? 'bg-orange-50 text-orange-600 border-orange-300'
+      ? { backgroundColor: '#FFD37933', color: '#FFD379', borderColor: '#FFD379' }
       : s === 'degraded'
-      ? 'bg-yellow-50 text-yellow-700 border-yellow-300'
-      : 'bg-gray-100 text-gray-600 border-gray-200';
+      ? { backgroundColor: '#FFFCED', color: '#FFDA44', borderColor: '#FFDA44' }
+      : { backgroundColor: '#F8F9FA', color: '#A8B0B5', borderColor: '#A8B0B5' };
 
   return (
-    <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold border capitalize ${styles}`}>
+    <span className="inline-flex px-3 py-1 rounded-full text-xs font-semibold border capitalize" style={style}>
       {status}
     </span>
   );
@@ -46,29 +71,31 @@ function ConnectivityBadge({ status }: { status: string }) {
   const s = status?.toLowerCase();
   const isOnline   = s === 'online';
   const isDegraded = s === 'degraded';
-  const isOffline  = s === 'offline';
 
   if (isOnline) return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600">
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z" />
-      </svg>
+    <span
+      className="inline-flex items-center gap-1.5 text-xs font-bold"
+      style={{ ...FONT, backgroundColor: '#E1F7EB', color: '#009F51', borderRadius: 30, padding: '6px 12px' }}
+    >
+      <Image src="/Wi-Fion.png" alt="" width={14} height={14} />
       ONLINE
     </span>
   );
   if (isDegraded) return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-yellow-600">
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-      </svg>
+    <span
+      className="inline-flex items-center gap-1.5 text-xs font-bold"
+      style={{ ...FONT, backgroundColor: '#FFFCED', color: '#FFDA44', borderRadius: 30, padding: '6px 12px' }}
+    >
+      <Image src="/degraded.png" alt="" width={14} height={14} />
       DEGRADED
     </span>
   );
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-red-500">
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18M10.584 10.587a2.25 2.25 0 003.226 3.226M6.75 6.75a9.75 9.75 0 01.128-.14m9.244 9.244c-2.617 2.617-6.624 3.154-9.802 1.617M3.532 3.532A12.75 12.75 0 0112 1.5c7.036 0 12.75 5.714 12.75 12.75 0 2.915-.977 5.607-2.616 7.757" />
-      </svg>
+    <span
+      className="inline-flex items-center gap-1.5 text-xs font-bold"
+      style={{ ...FONT, backgroundColor: '#FF756B1A', color: '#FF756B', borderRadius: 30, padding: '6px 12px' }}
+    >
+      <Image src="/Wi-Fioff.png" alt="" width={14} height={14} />
       OFFLINE
     </span>
   );
@@ -120,7 +147,8 @@ function SearchBar({ value, onChange, placeholder }: { value: string; onChange: 
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder ?? 'Search...'}
-        className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-full text-sm text-gray-700 placeholder-gray-400 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
+        className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-full text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#009F51] focus:border-transparent"
+        style={{ backgroundColor: '#F8F9FA' }}
       />
     </div>
   );
@@ -163,10 +191,11 @@ function Pagination({ currentPage, totalPages, onChange, loading, from, to, tota
 }
 
 
-export default function BanksPayoutsPage() {
+function BanksPayoutsPageInner() {
   const { isAuthenticated } = useAuthStore();
+  const searchParams = useSearchParams();
 
-  const [activeTab, setActiveTab] = useState<TabType>('bank-status');
+  const [activeTab, setActiveTab] = useState<TabType>(() => (searchParams.get('tab') as TabType) || 'bank-status');
 
   // Bank Status
   const [providers,        setProviders]        = useState<PaymentProviderStat[]>([]);
@@ -180,7 +209,7 @@ export default function BanksPayoutsPage() {
   const [loadingPayoutStats, setLoadingPayoutStats] = useState(true);
   const [payoutPage,         setPayoutPage]         = useState(1);
   const [payoutSearch,       setPayoutSearch]       = useState('');
-  const [payoutStatus,       setPayoutStatus]       = useState('');
+  const [payoutStatus,       setPayoutStatus]       = useState(() => searchParams.get('status') ?? '');
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [error, setError] = useState<string | null>(null);
@@ -291,7 +320,7 @@ export default function BanksPayoutsPage() {
   const offline     = providers.filter((p) => (p as any).status?.toLowerCase() === 'offline' || p.success_rate < 80).length;
 
   return (
-    <div className="flex h-screen bg-[#F8F9FA] font-['DM_Sans',sans-serif]">
+    <div className="flex h-screen bg-white" style={FONT}>
       <Sidebar />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -305,13 +334,13 @@ export default function BanksPayoutsPage() {
         </div>
 
         {/* ── Full-width tab bar — same pattern as FX Engine */}
-        <div className="w-full flex-shrink-0">
-          <div className="flex items-stretch w-full">
+        <div className="w-full bg-white px-8 py-4 flex-shrink-0">
+          <div className="flex items-stretch w-full gap-2">
             {TABS.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 ml-7 py-4 text-sm font-bold text-center transition-colors ${
+                className={`flex-1 py-4 rounded-lg text-sm font-bold text-center transition-colors ${
                   activeTab === tab.id
                     ? 'bg-[#009F51] text-[#E1F7EB]'
                     : 'bg-[#F8F9FA] text-gray-700 hover:text-gray-900'
@@ -346,17 +375,21 @@ export default function BanksPayoutsPage() {
                 <button
                   onClick={fetchProviders}
                   disabled={loadingProviders}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-[#009F51] text-white rounded-full text-sm font-semibold hover:bg-[#007A3D] disabled:opacity-50 transition-colors"
+                  className="flex items-center justify-center disabled:opacity-50 transition-colors flex-shrink-0 whitespace-nowrap"
+                  style={{ backgroundColor: '#009F51', color: '#E1F7EB', minWidth: 176, height: 56, gap: 8, borderRadius: 200, padding: 12, ...FONT, fontWeight: 600, fontSize: 20, lineHeight: '120%', letterSpacing: '-1%' }}
                 >
-                  <svg className={`w-4 h-4 ${loadingProviders ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                  <svg className={`w-5 h-5 ${loadingProviders ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                   </svg>
                   Refresh Now
                 </button>
               </div>
 
+              {/* Outer frame — #F8F9FA, matching Wallet Management / FX Engine pattern */}
+              <div style={{ backgroundColor: '#F8F9FA', border: '1.05px solid #E1E4E6', borderRadius: 16, paddingTop: 16, paddingBottom: 16, paddingLeft: 12, paddingRight: 12 }} className="space-y-4">
+
               {/* Rate Engine Status summary cards */}
-              <div className="bg-white rounded-2xl border border-gray-200 p-6">
+              <div className="bg-white rounded-xl p-6">
                 <h3 className="text-base font-bold text-gray-900 mb-4">Rate Engine Status</h3>
                 <div className="grid grid-cols-4 gap-4">
                   {/* Total Banks */}
@@ -396,7 +429,7 @@ export default function BanksPayoutsPage() {
                   {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-56 w-full" />)}
                 </div>
               ) : providers.length === 0 ? (
-                <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
+                <div className="bg-white rounded-xl p-12 text-center">
                   <p className="text-gray-400 text-sm">No provider data available</p>
                 </div>
               ) : (
@@ -407,7 +440,7 @@ export default function BanksPayoutsPage() {
                     const hasDowntime = !!(p as any).last_downtime;
 
                     return (
-                      <div key={p.provider ?? idx} className="bg-white rounded-2xl border border-gray-200 p-6">
+                      <div key={p.provider ?? idx} className="bg-white rounded-xl p-6">
                         {/* Bank header */}
                         <div className="flex items-center justify-between mb-5">
                           <div className="flex items-center gap-4">
@@ -478,6 +511,8 @@ export default function BanksPayoutsPage() {
                   })}
                 </div>
               )}
+
+              </div>
             </div>
           )}
 
@@ -524,24 +559,26 @@ export default function BanksPayoutsPage() {
                   <select
                     value={payoutStatus}
                     onChange={(e) => { setPayoutStatus(e.target.value); setPayoutPage(1); }}
-                    className="appearance-none bg-white border border-gray-200 rounded-lg pl-3 pr-8 py-2.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
+                    className="appearance-none border border-gray-200 rounded-full pl-4 pr-8 py-2.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-[#009F51] cursor-pointer"
+                    style={{ backgroundColor: '#F8F9FA' }}
                   >
                     {['All Status', 'completed', 'pending', 'processing', 'failed'].map((s) => (
                       <option key={s} value={s === 'All Status' ? '' : s}>{s === 'All Status' ? 'All Status' : s.charAt(0).toUpperCase() + s.slice(1)}</option>
                     ))}
                   </select>
-                  <svg className="w-4 h-4 text-gray-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
+                  <svg className="w-4 h-4 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
                 </div>
-                <button className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 transition-colors flex-shrink-0">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
-                  </svg>
+                <button
+                  className="flex items-center justify-center transition-colors flex-shrink-0"
+                  style={{ width: 126, height: 48, gap: 8, borderRadius: 100, padding: '12px 20px', backgroundColor: '#009F51', color: '#ffffff', fontFamily: 'Geist, sans-serif', fontWeight: 400, fontSize: 18, lineHeight: '150%', letterSpacing: '0%' }}
+                >
+                  <Image src="/exportIcon.png" alt="" width={15} height={15} />
                   Export
                 </button>
               </div>
 
               {/* Payout table */}
-              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <TableHead cols={['Timestamp', 'User', 'Bank', 'Account', 'Amount', 'Status', 'Reference']} />
@@ -617,15 +654,20 @@ export default function BanksPayoutsPage() {
                   <h2 className="text-lg font-bold text-gray-900">Bank Handshake &amp; Health Checks</h2>
                   <p className="text-sm text-gray-500 mt-0.5">Provider connectivity and health-check log</p>
                 </div>
-                <button onClick={fetchHandshakes} disabled={loadingHandshakes} className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-full text-sm font-semibold hover:bg-emerald-600 disabled:opacity-50 transition-colors">
-                  <svg className={`w-4 h-4 ${loadingHandshakes ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                <button
+                  onClick={fetchHandshakes}
+                  disabled={loadingHandshakes}
+                  className="flex items-center justify-center disabled:opacity-50 transition-colors flex-shrink-0 whitespace-nowrap"
+                  style={{ backgroundColor: '#009F51', color: '#E1F7EB', minWidth: 176, height: 56, gap: 8, borderRadius: 200, padding: 12, ...FONT, fontWeight: 600, fontSize: 20, lineHeight: '120%', letterSpacing: '-1%' }}
+                >
+                  <svg className={`w-5 h-5 ${loadingHandshakes ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                   </svg>
-                  Refresh
+                  Refresh Now
                 </button>
               </div>
 
-              <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <TableHead cols={['Timestamp', 'Provider', 'Status', 'Response Time', 'Message']} />
@@ -638,8 +680,13 @@ export default function BanksPayoutsPage() {
                           ? <tr><td colSpan={5} className="px-5 py-12 text-center text-sm text-gray-400">No handshake records available</td></tr>
                           : handshakes.map((h) => (
                               <tr key={h.id} className="hover:bg-gray-50/50 transition-colors">
-                                <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">
-                                  {h.timestamp ? new Date(h.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                                <td className="px-5 py-4 whitespace-nowrap">
+                                  {h.timestamp ? (
+                                    <>
+                                      <p className="text-sm text-gray-700">{fmtDateExact(h.timestamp)}</p>
+                                      <p className="text-xs text-gray-400">{timeAgo(h.timestamp)}</p>
+                                    </>
+                                  ) : '—'}
                                 </td>
                                 <td className="px-5 py-4 text-sm font-semibold text-gray-900 capitalize">{h.provider}</td>
                                 <td className="px-5 py-4"><StatusBadge status={h.status} /></td>
@@ -658,5 +705,13 @@ export default function BanksPayoutsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function BanksPayoutsPage() {
+  return (
+    <Suspense fallback={null}>
+      <BanksPayoutsPageInner />
+    </Suspense>
   );
 }

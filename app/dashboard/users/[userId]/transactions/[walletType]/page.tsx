@@ -254,41 +254,44 @@ export default function WalletTransactionsPage({
             {/* Filters bar */}
             <div className="flex items-center gap-3">
               {/* Search */}
-              <div className="flex-1 relative max-w-md">
+              <div className="relative w-full max-w-md">
                 <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
                 <input type="text" value={search} onChange={e => handleSearch(e.target.value)}
                   placeholder="Search by name, wallet ID or transaction ID..."
-                  className="w-full pl-10 pr-4 py-2.5 text-sm bg-[#F9FAFB] border border-gray-200 rounded-full text-gray-700 placeholder-gray-400 focus:outline-none focus:border-gray-400"/>
+                  className="w-full pl-10 pr-4 py-2.5 text-sm border rounded-full text-gray-700 placeholder-gray-400 focus:outline-none focus:border-gray-400"
+                  style={{ backgroundColor: '#F8F9FA', borderColor: '#E1E4E6' }}/>
               </div>
 
-              {/* All Types */}
-              <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1); }}
-                className="pl-3 pr-8 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-600 bg-white focus:outline-none focus:border-gray-400 appearance-none cursor-pointer"
-                style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}>
-                <option value="">All Types</option>
-                <option value="deposit">Deposit</option>
-                <option value="withdrawal">Withdrawal</option>
-                <option value="transfer">Transfer</option>
-              </select>
+              <div className="flex items-center gap-3 ml-auto shrink-0">
+                {/* All Types */}
+                <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1); }}
+                  className="pl-3 pr-8 py-2.5 text-sm border border-gray-200 rounded-full text-gray-600 focus:outline-none focus:border-gray-400 appearance-none cursor-pointer"
+                  style={{ backgroundColor: '#F8F9FA', backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}>
+                  <option value="">All Types</option>
+                  <option value="deposit">Deposit</option>
+                  <option value="withdrawal">Withdrawal</option>
+                  <option value="transfer">Transfer</option>
+                </select>
 
-              {/* All Status */}
-              <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
-                className="pl-3 pr-8 py-2.5 text-sm border border-gray-200 rounded-xl text-gray-600 bg-white focus:outline-none focus:border-gray-400 appearance-none cursor-pointer"
-                style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}>
-                <option value="">All Status</option>
-                <option value="completed">Completed</option>
-                <option value="processing">Processing</option>
-                <option value="pending">Pending</option>
-                <option value="failed">Failed</option>
-                <option value="on-going">On Going</option>
-              </select>
+                {/* All Status */}
+                <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }}
+                  className="pl-3 pr-8 py-2.5 text-sm border border-gray-200 rounded-full text-gray-600 focus:outline-none focus:border-gray-400 appearance-none cursor-pointer"
+                  style={{ backgroundColor: '#F8F9FA', backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}>
+                  <option value="">All Status</option>
+                  <option value="completed">Completed</option>
+                  <option value="processing">Processing</option>
+                  <option value="pending">Pending</option>
+                  <option value="failed">Failed</option>
+                  <option value="on-going">On Going</option>
+                </select>
 
-              {/* Export */}
-              <button className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-white rounded-xl transition-colors shrink-0"
-                style={{ backgroundColor: '#339D88' }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Export
-              </button>
+                {/* Export */}
+                <button className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-white rounded-full transition-colors shrink-0"
+                  style={{ backgroundColor: '#009F51' }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Export
+                </button>
+              </div>
             </div>
           </div>
 
