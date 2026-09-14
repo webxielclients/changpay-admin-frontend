@@ -488,6 +488,7 @@ function KYCVerificationPageInner() {
   const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
     { id: 'all',          label: 'All' },
     { id: 'pending',      label: 'Pending' },
+    { id: 'approved',     label: 'Approved' },
     { id: 'rejected',     label: 'Rejected' },
   ];
 
