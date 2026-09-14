@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/store/authStore';
-import { fxApi, walletApi } from '@/lib/api/client';
-import type { ConversionRate, FxOverviewSummary, SpreadConfig, CryptoRateMarkup, WalletRecord, CurrencyWalletData } from '@/lib/api/client';
+import { fxApi } from '@/lib/api/client';
+import type { ConversionRate, FxOverviewSummary, SpreadConfig, CryptoRateMarkup, ConversionTransaction } from '@/lib/api/client';
 import DashboardHeader from '@/components/DashboardHeader';
 import Sidebar from '@/components/Sidebar';
 import Image from 'next/image';
@@ -11,8 +11,10 @@ import Image from 'next/image';
 const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif" };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type MainTab = 'overview' | 'usd-wallet' | 'ngn-wallet' | 'yuan-wallet';
+type MainTab = 'overview' | 'swap';
 type SubTab  = 'live-rates' | 'spread' | 'rate-logs';
+type SwapCurrency = 'USD' | 'NGN' | 'YAN';
+type SwapPairFilter = 'all' | 'NGN-YAN' | 'USD-YAN' | 'USD-NGN' | 'NGN-USD' | 'YAN-USD' | 'YAN-NGN';
 
 interface LatestChange {
   timestamp: string;
@@ -74,6 +76,37 @@ function ChangeBadge({ value }: { value?: string }) {
         <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
       </svg>
       {value ?? '+20%'}
+    </span>
+  );
+}
+
+// ─── Conversion status badge ───────────────────────────────────────────────────
+function ConversionStatusBadge({ status }: { status: string }) {
+  const s = (status ?? '').toLowerCase();
+  const map: Record<string, { bg: string; text: string }> = {
+    completed: { bg: '#D9F5DB', text: '#047857' },
+    success:   { bg: '#D9F5DB', text: '#047857' },
+    pending:   { bg: '#FEF3C7', text: '#B45309' },
+    processing:{ bg: '#FEF3C7', text: '#B45309' },
+    failed:    { bg: '#FEE2E2', text: '#DC2626' },
+  };
+  const style = map[s] ?? { bg: '#F3F4F6', text: '#6B7280' };
+  return (
+    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold capitalize" style={{ backgroundColor: style.bg, color: style.text }}>
+      {status || '—'}
+    </span>
+  );
+}
+
+// ─── Currency pair cell (with right-arrow icon) ───────────────────────────────
+function PairCell({ from, to }: { from: string; to: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+      {from}
+      <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+      </svg>
+      {to}
     </span>
   );
 }
@@ -508,11 +541,15 @@ export default function FXEnginePage() {
   const [loadingCryptoRates,setLoadingCryptoRates]= useState(false);
   const [latestChange]                            = useState<LatestChange | null>(null);
   const [configSpreadModal, setConfigSpreadModal] = useState<SpreadConfig | null>(null);
-  const [fxWalletData,      setFxWalletData]      = useState<CurrencyWalletData | null>(null);
-  const [loadingFxWallets,  setLoadingFxWallets]  = useState(false);
-  const [fxWalletPage,      setFxWalletPage]      = useState(1);
-  const [fxWalletSearch,    setFxWalletSearch]    = useState('');
-  const [togglingWalletId,  setTogglingWalletId]  = useState<string | null>(null);
+  const [conversions,        setConversions]        = useState<ConversionTransaction[]>([]);
+  const [conversionsMeta,    setConversionsMeta]    = useState<{ total: number; last_page: number; from: number | null; to: number | null } | null>(null);
+  const [loadingConversions, setLoadingConversions] = useState(false);
+  const [conversionsPage,    setConversionsPage]    = useState(1);
+  const [conversionsSearch,  setConversionsSearch]  = useState(''); // debounced — drives the actual fetch
+  const [searchInput,        setSearchInput]        = useState(''); // immediate — what the input displays
+  const [pairFilter,         setPairFilter]         = useState<SwapPairFilter>('all');
+  const conversionsSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const conversionsFetchSeq = useRef(0);
 
   const fetchOverview = useCallback(async () => {
     try {
@@ -547,21 +584,45 @@ export default function FXEnginePage() {
     } catch { setCryptoRates([]); } finally { setLoadingCryptoRates(false); }
   }, []);
 
-  const fetchFxWallets = useCallback(async (currency: 'USD' | 'NGN' | 'YAN', page: number, search: string) => {
+  // Guards against out-of-order responses — without this, a slower response for an
+  // earlier keystroke could arrive after a newer one and wipe out correct results
+  // with an empty/stale set.
+  const fetchConversions = useCallback(async (page: number, search: string, pair: SwapPairFilter) => {
+    const seq = ++conversionsFetchSeq.current;
     try {
-      setLoadingFxWallets(true);
-      const res = await walletApi.getWalletsByCurrency(currency, { page, per_page: 20, search: search || undefined });
-      setFxWalletData(res?.status ? (res.data ?? null) : null);
-    } catch { setFxWalletData(null); } finally { setLoadingFxWallets(false); }
+      setLoadingConversions(true);
+      const [from, to] = pair === 'all' ? [undefined, undefined] : pair.split('-') as [SwapCurrency, SwapCurrency];
+      const res = await fxApi.getConversions({
+        page, per_page: 15,
+        search: search || undefined,
+        from_currency: from,
+        to_currency: to,
+      });
+      if (seq !== conversionsFetchSeq.current) return; // superseded by a newer request
+      if (res?.status && res.data) {
+        setConversions(res.data.data ?? []);
+        setConversionsMeta({ total: res.data.meta.total, last_page: res.data.meta.last_page, from: res.data.meta.from, to: res.data.meta.to });
+      } else {
+        setConversions([]);
+        setConversionsMeta(null);
+      }
+    } catch {
+      if (seq !== conversionsFetchSeq.current) return;
+      setConversions([]);
+      setConversionsMeta(null);
+    } finally {
+      if (seq === conversionsFetchSeq.current) setLoadingConversions(false);
+    }
   }, []);
 
-  const handleToggleFxWallet = useCallback(async (wallet: WalletRecord, currency: 'USD' | 'NGN' | 'YAN') => {
-    try {
-      setTogglingWalletId(wallet.id);
-      await walletApi.toggleLock(wallet.id);
-      await fetchFxWallets(currency, fxWalletPage, fxWalletSearch);
-    } catch { /* noop */ } finally { setTogglingWalletId(null); }
-  }, [fetchFxWallets, fxWalletPage, fxWalletSearch]);
+  const handleConversionsSearch = (val: string) => {
+    setSearchInput(val);
+    if (conversionsSearchTimeout.current) clearTimeout(conversionsSearchTimeout.current);
+    conversionsSearchTimeout.current = setTimeout(() => {
+      setConversionsPage(1);
+      setConversionsSearch(val);
+    }, 400);
+  };
 
   const handleRelease = useCallback(async (pair: string) => {
     const rateId = appliedOverrides[pair];
@@ -582,16 +643,9 @@ export default function FXEnginePage() {
   }, [mainTab, subTab, fetchSpreads, fetchCryptoRates]);
 
   useEffect(() => {
-    const cur = mainTab === 'usd-wallet' ? 'USD' : mainTab === 'ngn-wallet' ? 'NGN' : mainTab === 'yuan-wallet' ? 'YAN' : null;
-    if (cur) { setFxWalletData(null); setFxWalletPage(1); setFxWalletSearch(''); fetchFxWallets(cur, 1, ''); }
+    if (mainTab === 'swap') fetchConversions(conversionsPage, conversionsSearch, pairFilter);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mainTab]);
-
-  useEffect(() => {
-    const cur = mainTab === 'usd-wallet' ? 'USD' : mainTab === 'ngn-wallet' ? 'NGN' : mainTab === 'yuan-wallet' ? 'YAN' : null;
-    if (cur) fetchFxWallets(cur, fxWalletPage, fxWalletSearch);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fxWalletPage, fxWalletSearch]);
+  }, [mainTab, conversionsPage, conversionsSearch, pairFilter]);
 
   if (!isAuthenticated) return null;
 
@@ -629,21 +683,15 @@ export default function FXEnginePage() {
             >
               Overview
             </button>
-            {(['usd-wallet', 'ngn-wallet', 'yuan-wallet'] as MainTab[]).map((id) => {
-              const label = id === 'usd-wallet' ? 'USD Wallet' : id === 'ngn-wallet' ? 'NGN Wallet' : 'YUAN Wallet';
-              return (
-                <button
-                  key={id}
-                  onClick={() => setMainTab(id)}
-                  className="flex-1 flex items-center justify-center text-sm font-medium text-center transition-colors rounded-lg"
-                  style={mainTab === id
-                    ? { backgroundColor: '#009F51', color: '#E1F7EB', height: 48, gap: 8, padding: '12px 16px' }
-                    : { backgroundColor: '#F8F9FA', color: '#374151', height: 48, gap: 8, padding: '12px 16px' }}
-                >
-                  {label}
-                </button>
-              );
-            })}
+            <button
+              onClick={() => setMainTab('swap')}
+              className="flex-1 flex items-center justify-center text-sm font-medium text-center transition-colors rounded-lg"
+              style={mainTab === 'swap'
+                ? { backgroundColor: '#009F51', color: '#E1F7EB', height: 48, gap: 8, padding: '12px 16px' }
+                : { backgroundColor: '#F8F9FA', color: '#374151', height: 48, gap: 8, padding: '12px 16px' }}
+            >
+              Swap
+            </button>
           </div>
         </div>
 
@@ -924,34 +972,38 @@ export default function FXEnginePage() {
             </>
           )}
 
-          {/* ══════════════════ WALLET TABS ══════════════════ */}
-          {(mainTab === 'usd-wallet' || mainTab === 'ngn-wallet' || mainTab === 'yuan-wallet') && (() => {
-            const cur = mainTab === 'usd-wallet' ? 'USD' : mainTab === 'ngn-wallet' ? 'NGN' : 'YAN';
-            const curLabel = mainTab === 'usd-wallet' ? 'USD' : mainTab === 'ngn-wallet' ? 'NGN' : 'Yuan';
-            const curSymbol = cur === 'USD' ? '$' : cur === 'NGN' ? '₦' : '¥';
-            const stats = fxWalletData?.stats;
-            const wallets = fxWalletData?.wallets?.data ?? [];
-            const meta = fxWalletData?.wallets?.meta;
-            const totalPages = meta?.last_page ?? 1;
+          {/* ══════════════════ SWAP ══════════════════ */}
+          {mainTab === 'swap' && (() => {
+            const totalPages = conversionsMeta?.last_page ?? 1;
+            const PAIR_FILTERS: { id: SwapPairFilter; label: React.ReactNode }[] = [
+              { id: 'all',     label: 'All Pairs' },
+              { id: 'NGN-YAN', label: <PairCell from="NGN" to="YUAN" /> },
+              { id: 'USD-YAN', label: <PairCell from="USD" to="YUAN" /> },
+              { id: 'USD-NGN', label: <PairCell from="USD" to="NGN" /> },
+              { id: 'NGN-USD', label: <PairCell from="NGN" to="USD" /> },
+              { id: 'YAN-USD', label: <PairCell from="YUAN" to="USD" /> },
+              { id: 'YAN-NGN', label: <PairCell from="YUAN" to="NGN" /> },
+            ];
             return (
               <div className="p-8 space-y-6">
                 <div>
-                  <h2 className="text-lg font-bold text-gray-900">{curLabel} Wallet Management</h2>
-                  <p className="text-sm text-gray-500 mt-0.5">All {curLabel} wallets on the platform</p>
+                  <h2 className="text-lg font-bold text-gray-900">Currency Conversions</h2>
+                  <p className="text-sm text-gray-500 mt-0.5">Inter-wallet currency conversion transactions across USD, NGN and YUAN</p>
                 </div>
 
-                {/* Stat cards */}
-                <div className="grid grid-cols-4 gap-4">
-                  {[
-                    { label: 'Total Wallets',   value: loadingFxWallets ? '—' : String(stats?.total_wallets  ?? '—'), color: 'text-gray-900'    },
-                    { label: 'Active Wallets',  value: loadingFxWallets ? '—' : String(stats?.active_wallets ?? '—'), color: 'text-[#009F51]' },
-                    { label: 'Locked Wallets',  value: loadingFxWallets ? '—' : String(stats?.locked_wallets ?? '—'), color: 'text-red-500'     },
-                    { label: 'Total Balance',   value: loadingFxWallets ? '—' : stats?.total_balance != null ? `${curSymbol}${Number(stats.total_balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—', color: 'text-blue-600' },
-                  ].map((s) => (
-                    <div key={s.label} className="rounded-xl p-5" style={{ backgroundColor: '#F8F9FA' }}>
-                      <p className="text-xs text-gray-500 mb-2">{s.label}</p>
-                      <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-                    </div>
+                {/* Pair filter chips */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {PAIR_FILTERS.map((f) => (
+                    <button
+                      key={f.id}
+                      onClick={() => { setPairFilter(f.id); setConversionsPage(1); }}
+                      className="px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap"
+                      style={pairFilter === f.id
+                        ? { backgroundColor: '#009F51', color: '#ffffff' }
+                        : { backgroundColor: '#F8F9FA', color: '#374151', border: '1px solid #E1E4E6' }}
+                    >
+                      {f.label}
+                    </button>
                   ))}
                 </div>
 
@@ -963,68 +1015,47 @@ export default function FXEnginePage() {
                     </svg>
                     <input
                       type="text"
-                      value={fxWalletSearch}
-                      onChange={(e) => { setFxWalletSearch(e.target.value); setFxWalletPage(1); }}
-                      placeholder="Search by wallet UID, name, email..."
+                      value={searchInput}
+                      onChange={(e) => handleConversionsSearch(e.target.value)}
+                      placeholder="Search by reference or user name/email..."
                       className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#009F51]"
                     />
                   </div>
                 </div>
 
-                {/* Wallets table */}
+                {/* Conversions table */}
                 <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full">
-                      <TableHead cols={['User', 'Wallet ID', 'Balance', 'Status', 'Last Activity', 'Action']} />
+                      <TableHead cols={['Reference', 'User', 'Pair', 'From', 'To', 'Rate', 'Status', 'Timestamp']} />
                       <tbody className="divide-y divide-gray-50">
-                        {loadingFxWallets
+                        {loadingConversions
                           ? [...Array(5)].map((_, i) => (
-                              <tr key={i}>{[...Array(6)].map((_, j) => <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                              <tr key={i}>{[...Array(8)].map((_, j) => <td key={j} className="px-5 py-4"><Skeleton className="h-5 w-full" /></td>)}</tr>
                             ))
-                          : wallets.length === 0
-                            ? <tr><td colSpan={6} className="px-5 py-14 text-center text-sm text-gray-400">No {curLabel} wallets found</td></tr>
-                            : wallets.map((w) => {
-                                const fullName = w.user ? `${w.user.firstName} ${w.user.lastName}`.trim() : '—';
-                                const initials = w.user ? `${w.user.firstName?.[0] ?? ''}${w.user.lastName?.[0] ?? ''}`.toUpperCase() : '?';
-                                const lastAct = w.lastActivityAt ? fmtDate(w.lastActivityAt) : '—';
+                          : conversions.length === 0
+                            ? <tr><td colSpan={8} className="px-5 py-14 text-center text-sm text-gray-400">No conversion transactions found</td></tr>
+                            : conversions.map((c) => {
+                                const fullName = c.user ? `${c.user.firstName} ${c.user.lastName}`.trim() : '—';
+                                const initials = c.user ? `${c.user.firstName?.[0] ?? ''}${c.user.lastName?.[0] ?? ''}`.toUpperCase() : '?';
                                 return (
-                                  <tr key={w.id} className="hover:bg-gray-50/50 transition-colors">
+                                  <tr key={c.id} className="hover:bg-gray-50/50 transition-colors">
+                                    <td className="px-5 py-4 text-xs text-gray-500 font-mono">{String(c.reference ?? c.id).slice(0, 14)}</td>
                                     <td className="px-5 py-4">
                                       <div className="flex items-center gap-3">
                                         <div className="w-8 h-8 rounded-full bg-[#E1F7EB] flex items-center justify-center text-xs font-bold text-[#009F51] flex-shrink-0">{initials}</div>
                                         <div>
                                           <p className="text-sm font-semibold text-gray-900">{fullName}</p>
-                                          <p className="text-xs text-gray-400">{w.user?.changpayId ?? w.user?.email ?? '—'}</p>
+                                          <p className="text-xs text-gray-400">{c.user?.changpayId ?? c.user?.email ?? '—'}</p>
                                         </div>
                                       </div>
                                     </td>
-                                    <td className="px-5 py-4 text-xs text-gray-500 font-mono">{w.id.slice(0, 8).toUpperCase()}</td>
-                                    <td className="px-5 py-4">
-                                      <p className="text-sm font-semibold text-gray-900">{curSymbol}{Number(w.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                                      <p className="text-xs text-gray-400">{curSymbol}{Number(w.availableBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })} avail.</p>
-                                    </td>
-                                    <td className="px-5 py-4">
-                                      <div className="flex flex-col gap-1">
-                                        <ActiveBadge isActive={w.isActive} />
-                                        {w.isLocked && (
-                                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border bg-red-50 text-red-600 border-red-200">Frozen</span>
-                                        )}
-                                      </div>
-                                    </td>
-                                    <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{lastAct}</td>
-                                    <td className="px-5 py-4">
-                                      <button
-                                        onClick={() => handleToggleFxWallet(w, cur)}
-                                        disabled={togglingWalletId === w.id}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${
-                                          w.isLocked
-                                            ? 'bg-[#F5FCF7] text-[#009F51] hover:bg-[#E1F7EB]'
-                                            : 'bg-red-50 text-red-600 hover:bg-red-100'
-                                        }`}
-                                      >
-                                        {togglingWalletId === w.id ? '…' : w.isLocked ? 'Unfreeze' : 'Freeze'}
-                                      </button>
-                                    </td>
+                                    <td className="px-5 py-4"><PairCell from={c.fromCurrency} to={c.toCurrency} /></td>
+                                    <td className="px-5 py-4 text-sm text-gray-900">{Number(c.fromAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })} <span className="text-xs text-gray-400">{c.fromCurrency}</span></td>
+                                    <td className="px-5 py-4 text-sm font-semibold text-[#009F51]">{Number(c.toAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })} <span className="text-xs text-gray-400 font-normal">{c.toCurrency}</span></td>
+                                    <td className="px-5 py-4 text-sm text-gray-700">{c.rate}</td>
+                                    <td className="px-5 py-4"><ConversionStatusBadge status={c.status} /></td>
+                                    <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{fmtDate(c.createdAt)}</td>
                                   </tr>
                                 );
                               })
@@ -1037,19 +1068,19 @@ export default function FXEnginePage() {
                 {/* Pagination */}
                 {totalPages > 1 && (
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-gray-500">{meta?.from ?? '—'}–{meta?.to ?? '—'} of {meta?.total ?? '—'}</p>
+                    <p className="text-sm text-gray-500">{conversionsMeta?.from ?? '—'}–{conversionsMeta?.to ?? '—'} of {conversionsMeta?.total ?? '—'}</p>
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => setFxWalletPage((p) => Math.max(1, p - 1))}
-                        disabled={fxWalletPage <= 1 || loadingFxWallets}
+                        onClick={() => setConversionsPage((p) => Math.max(1, p - 1))}
+                        disabled={conversionsPage <= 1 || loadingConversions}
                         className="px-4 py-2 text-sm border border-gray-200 rounded-lg bg-white hover:bg-gray-50 disabled:opacity-40 transition-colors"
                       >
                         Prev
                       </button>
-                      <span className="text-sm text-gray-600 font-medium">{fxWalletPage} / {totalPages}</span>
+                      <span className="text-sm text-gray-600 font-medium">{conversionsPage} / {totalPages}</span>
                       <button
-                        onClick={() => setFxWalletPage((p) => Math.min(totalPages, p + 1))}
-                        disabled={fxWalletPage >= totalPages || loadingFxWallets}
+                        onClick={() => setConversionsPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={conversionsPage >= totalPages || loadingConversions}
                         className="px-4 py-2 text-sm border border-gray-200 rounded-lg bg-white hover:bg-gray-50 disabled:opacity-40 transition-colors"
                       >
                         Next

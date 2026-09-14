@@ -57,7 +57,7 @@ const navItems: NavItem[] = [
   // },
   {
     id: 'compliance-risk',
-    label: 'Compliance & Risk',
+    label: 'Compliance & risk Kyc/Kyb',
     path: '/dashboard/kyc-verification',
     icon: () => <Image src="/gear.png" alt="" width={20} height={20} />,
   },

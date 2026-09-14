@@ -3,14 +3,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { walletApi } from '@/lib/api/client';
-import type { WalletStats, WalletRecord, CurrencyWalletData, ReconciliationStatus, TopupTransaction, SwapTransaction, LedgerEntry } from '@/lib/api/client';
+import type { WalletStats, WalletRecord, CurrencyWalletData, ReconciliationStatus, TopupTransaction, LedgerEntry } from '@/lib/api/client';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
 import Image from 'next/image';
 
-type MainTab      = 'overview' | 'currency-wallets' | 'ledger' | 'reconciliation';
-type CwSubTab     = 'wallets' | 'topup' | 'swap';
-type CurrencyType = 'USD' | 'NGN' | 'YAN';
+type MainTab       = 'overview' | 'currency-wallets' | 'ledger' | 'topup' | 'reconciliation';
+type CurrencyType  = 'USD' | 'NGN' | 'YAN';
+type LedgerAction  = 'all' | 'debit' | 'credit' | 'hold' | 'release';
+type TopupCurrency = 'all' | 'USD' | 'NGN';
 
 const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif" };
 
@@ -226,6 +227,30 @@ function downloadCSV(filename: string, headers: string[], rows: (string | number
   URL.revokeObjectURL(url);
 }
 
+// ─── Pill filter tabs (e.g. Ledger action, Topup currency) ───────────────────
+function PillTabs<T extends string>({ options, value, onChange }: {
+  options: { id: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {options.map((opt) => (
+        <button
+          key={opt.id}
+          onClick={() => onChange(opt.id)}
+          className={`px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
+            value === opt.id ? 'text-white' : 'text-gray-600 hover:bg-gray-100'
+          }`}
+          style={value === opt.id ? { backgroundColor: '#009F51' } : { backgroundColor: '#F8F9FA', border: '1px solid #E1E4E6' }}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ─── Status filter dropdown ────────────────────────────────────────────────────
 function StatusFilter({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
@@ -350,14 +375,13 @@ export default function WalletManagementPage() {
   const { isAuthenticated } = useAuthStore();
 
   const [mainTab,          setMainTab]          = useState<MainTab>('overview');
-  const [cwSubTab,         setCwSubTab]          = useState<CwSubTab>('wallets');
   const [selectedCurrency, setSelectedCurrency]  = useState<CurrencyType>('USD');
   const [walletSearch,     setWalletSearch]      = useState('');
   const [ledgerSearch,     setLedgerSearch]      = useState('');
+  const [ledgerAction,     setLedgerAction]      = useState<LedgerAction>('all');
   const [topupSearch,      setTopupSearch]       = useState('');
-  const [swapSearch,       setSwapSearch]        = useState('');
   const [topupFilter,      setTopupFilter]       = useState('All Status');
-  const [swapFilter,       setSwapFilter]        = useState('All Status');
+  const [topupCurrency,    setTopupCurrency]     = useState<TopupCurrency>('all');
   const [currentPage,      setCurrentPage]       = useState(1);
 
   const [stats,          setStats]          = useState<WalletStats | null>(null);
@@ -374,14 +398,10 @@ export default function WalletManagementPage() {
   const [topups,              setTopups]              = useState<TopupTransaction[] | null>(null);
   const [topupPage,           setTopupPage]           = useState(1);
   const [topupMeta,           setTopupMeta]           = useState<{ last_page: number; from: number | null; to: number | null; total: number } | null>(null);
-  const [swaps,               setSwaps]               = useState<SwapTransaction[] | null>(null);
-  const [swapPage,            setSwapPage]            = useState(1);
-  const [swapMeta,            setSwapMeta]            = useState<{ last_page: number; from: number | null; to: number | null; total: number } | null>(null);
   const [ledger,              setLedger]              = useState<LedgerEntry[] | null>(null);
   const [ledgerPage,          setLedgerPage]          = useState(1);
   const [ledgerMeta,          setLedgerMeta]          = useState<{ current_page: number; last_page: number; from: number | null; to: number | null; total: number } | null>(null);
   const [loadingTopups,       setLoadingTopups]       = useState(false);
-  const [loadingSwaps,        setLoadingSwaps]        = useState(false);
   const [loadingLedger,       setLoadingLedger]       = useState(false);
   const [error,               setError]               = useState<string | null>(null);
 
@@ -443,28 +463,30 @@ export default function WalletManagementPage() {
     }
   };
 
-  const fetchTopups = useCallback(async (search = '', status = '', page = 1) => {
+  const fetchTopups = useCallback(async (search = '', status = '', currency: TopupCurrency = 'all', page = 1) => {
     try {
       setLoadingTopups(true);
-      const res = await walletApi.getTopups({ search: search || undefined, status: status && status !== 'All Status' ? status.toLowerCase() : undefined, per_page: 15, page });
+      const res = await walletApi.getTopups({
+        search: search || undefined,
+        status: status && status !== 'All Status' ? status.toLowerCase() : undefined,
+        currency: currency !== 'all' ? currency : undefined,
+        per_page: 15,
+        page,
+      });
       setTopups(res.data?.data ?? []);
       if (res.data?.meta) setTopupMeta(res.data.meta);
     } catch { /* silent */ } finally { setLoadingTopups(false); }
   }, []);
 
-  const fetchSwaps = useCallback(async (search = '', status = '', page = 1) => {
-    try {
-      setLoadingSwaps(true);
-      const res = await walletApi.getSwaps({ search: search || undefined, status: status && status !== 'All Status' ? status.toLowerCase() : undefined, per_page: 15, page });
-      setSwaps(res.data?.data ?? []);
-      if (res.data?.meta) setSwapMeta(res.data.meta);
-    } catch { /* silent */ } finally { setLoadingSwaps(false); }
-  }, []);
-
-  const fetchLedger = useCallback(async (search = '', page = 1) => {
+  const fetchLedger = useCallback(async (search = '', action: LedgerAction = 'all', page = 1) => {
     try {
       setLoadingLedger(true);
-      const res = await walletApi.getLedger({ search: search || undefined, per_page: 15, page } as Parameters<typeof walletApi.getLedger>[0]);
+      const res = await walletApi.getLedger({
+        search: search || undefined,
+        action: action !== 'all' ? action : undefined,
+        per_page: 15,
+        page,
+      });
       setLedger(res.data?.data ?? []);
       if (res.data?.meta) setLedgerMeta(res.data.meta);
     } catch { /* silent */ } finally { setLoadingLedger(false); }
@@ -473,13 +495,12 @@ export default function WalletManagementPage() {
   useEffect(() => { fetchStats(); }, [fetchStats]);
 
   useEffect(() => {
-    if (mainTab === 'currency-wallets' && cwSubTab === 'wallets') fetchCurrencyWallets(selectedCurrency, currentPage, walletSearch);
-    if (mainTab === 'currency-wallets' && cwSubTab === 'topup') fetchTopups(topupSearch, topupFilter, topupPage);
-    if (mainTab === 'currency-wallets' && cwSubTab === 'swap') fetchSwaps(swapSearch, swapFilter, swapPage);
-    if (mainTab === 'ledger') fetchLedger(ledgerSearch, ledgerPage);
+    if (mainTab === 'currency-wallets') fetchCurrencyWallets(selectedCurrency, currentPage, walletSearch);
+    if (mainTab === 'topup') fetchTopups(topupSearch, topupFilter, topupCurrency, topupPage);
+    if (mainTab === 'ledger') fetchLedger(ledgerSearch, ledgerAction, ledgerPage);
     if (mainTab === 'reconciliation') fetchReconciliation();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mainTab, cwSubTab, selectedCurrency, currentPage, topupSearch, topupFilter, topupPage, swapSearch, swapFilter, swapPage, ledgerSearch, ledgerPage]);
+  }, [mainTab, selectedCurrency, currentPage, topupSearch, topupFilter, topupCurrency, topupPage, ledgerSearch, ledgerAction, ledgerPage]);
 
   const handleWalletSearch = (val: string) => {
     setWalletSearch(val);
@@ -493,13 +514,7 @@ export default function WalletManagementPage() {
   const handleTopupSearch = (val: string) => {
     setTopupSearch(val);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    searchTimeout.current = setTimeout(() => { setTopupPage(1); fetchTopups(val, topupFilter, 1); }, 400);
-  };
-
-  const handleSwapSearch = (val: string) => {
-    setSwapSearch(val);
-    if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    searchTimeout.current = setTimeout(() => { setSwapPage(1); fetchSwaps(val, swapFilter, 1); }, 400);
+    searchTimeout.current = setTimeout(() => { setTopupPage(1); fetchTopups(val, topupFilter, topupCurrency, 1); }, 400);
   };
 
   const handleCurrencyChange = (currency: CurrencyType) => {
@@ -532,19 +547,30 @@ export default function WalletManagementPage() {
 
   const goToCurrencyWallets = (currency: CurrencyType) => {
     setMainTab('currency-wallets');
-    setCwSubTab('wallets');
     handleCurrencyChange(currency);
   };
-
 
   const MAIN_TABS: { id: MainTab; label: string }[] = [
     { id: 'overview',         label: 'Overview' },
     { id: 'currency-wallets', label: 'Currency Wallets' },
     { id: 'ledger',           label: 'Ledger' },
+    { id: 'topup',            label: 'Top Up' },
     { id: 'reconciliation',   label: 'Reconciliation' },
   ];
 
-  const CW_TABS: CwSubTab[] = ['wallets', 'topup', 'swap'];
+  const LEDGER_ACTIONS: { id: LedgerAction; label: string }[] = [
+    { id: 'all',     label: 'All' },
+    { id: 'credit',  label: 'Credit' },
+    { id: 'debit',   label: 'Debit' },
+    { id: 'hold',    label: 'Hold' },
+    { id: 'release', label: 'Release' },
+  ];
+
+  const TOPUP_CURRENCIES: { id: TopupCurrency; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'USD', label: 'USD' },
+    { id: 'NGN', label: 'NGN' },
+  ];
 
   return (
     <div className="flex h-screen bg-[#F8F9FA]" style={FONT}>
@@ -694,18 +720,6 @@ export default function WalletManagementPage() {
           {/* ── CURRENCY WALLETS ── */}
           {mainTab === 'currency-wallets' && (
             <div className="p-8 space-y-5">
-              <div className="grid grid-cols-3 gap-3">
-                {CW_TABS.map((tab) => (
-                  <button key={tab} onClick={() => setCwSubTab(tab)}
-                    className={`py-3 rounded-md capitalize transition-colors ${cwSubTab === tab ? 'text-white' : 'bg-[#F1F2F4] text-gray-700 hover:bg-gray-200'}`}
-                    style={{ ...(cwSubTab === tab ? { backgroundColor: '#009F51' } : {}), fontWeight: 400, fontSize: 16, lineHeight: '136%', letterSpacing: '0%' }}>
-                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                  </button>
-                ))}
-              </div>
-
-              {/* Wallets */}
-              {cwSubTab === 'wallets' && (
                 <div className="space-y-4">
                   <div className="flex items-center gap-4">
                     <div className="relative flex-shrink-0">
@@ -714,7 +728,7 @@ export default function WalletManagementPage() {
                         style={{ backgroundColor: '#F8F9FA', borderRadius: 100 }}>
                         <option value="USD">USD Wallets</option>
                         <option value="NGN">NGN Wallets</option>
-                        <option value="YUAN">YUAN Wallets</option>
+                        <option value="YAN">YUAN Wallets</option>
                       </select>
                       <svg className="w-4 h-4 text-gray-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
                     </div>
@@ -795,106 +809,6 @@ export default function WalletManagementPage() {
                     <Pagination currentPage={currentPage} totalPages={totalPages} onChange={setCurrentPage} loading={loadingWallets} from={currencyData?.wallets?.meta?.from ?? undefined} to={currencyData?.wallets?.meta?.to ?? undefined} total={currencyData?.wallets?.meta?.total} />
                   </div>
                 </div>
-              )}
-
-              {/* Topup */}
-              {cwSubTab === 'topup' && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <SearchBar value={topupSearch} onChange={handleTopupSearch} placeholder="Search..." />
-                    <StatusFilter value={topupFilter} onChange={(v) => { setTopupFilter(v); setTopupPage(1); fetchTopups(topupSearch, v, 1); }} />
-                    <ExportBtn onClick={() => topups && downloadCSV('topups', ['Txn ID','User','Wallet ID','Amount','Currency','Method','Status','Timestamp','Reference'],
-                      topups.map(r => [r.reference ?? r.id, r.user ? `${r.user.firstName} ${r.user.lastName}`.trim() : '', r.wallet?.id ?? '', r.amount, r.currency, r.provider, r.status, r.createdAt, r.reference]))} />
-                  </div>
-                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead><tr style={{ backgroundColor: '#F8F9FA', borderTop: '1.05px solid #E1E4E6', borderBottom: '1.05px solid #E1E4E6' }}>{['Transaction ID','User','Wallet ID','Amount','Method','Status','Timestamp','Reference'].map((h) => <th key={h} className="pl-5 py-4 text-left whitespace-nowrap" style={{ ...FONT, color: '#6A7377', fontWeight: 400, fontSize: '14.67px', lineHeight: '150%', letterSpacing: '0.02em', paddingRight: '9.43px' }}>{h}</th>)}</tr></thead>
-                        <tbody className="divide-y divide-gray-50">
-                          {loadingTopups
-                            ? [...Array(4)].map((_, i) => (
-                                <tr key={i}>{[...Array(8)].map((_, j) => <td key={j} className="px-5 py-5"><Skeleton className="h-5 w-full" /></td>)}</tr>
-                              ))
-                            : !topups || topups.length === 0
-                              ? <tr><td colSpan={8} className="px-5 py-16 text-center text-sm text-gray-400">No topup transactions available</td></tr>
-                              : topups.map((row) => (
-                                  <tr key={String(row.id)} className="hover:bg-gray-50/50 transition-colors">
-                                    <td className="px-5 py-5 text-[13px] font-bold text-gray-900">{String(row.reference ?? row.id).slice(0, 12)}</td>
-                                    <td className="px-5 py-5"><UserCell name={row.user ? `${row.user.firstName} ${row.user.lastName}`.trim() : '—'} email={row.user?.changpayId ?? row.user?.email ?? ''} initials={null} /></td>
-                                    <td className="px-5 py-5 text-[13px] font-bold text-gray-900">{row.wallet?.id?.slice(0, 8).toUpperCase() ?? '—'}</td>
-                                    <td className="px-5 py-5"><p className="text-[13px] font-bold text-gray-900">{currencySymbol(row.currency)}{Number(row.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p><p className="text-xs text-gray-400">{row.currency}</p></td>
-                                    <td className="px-5 py-5 text-[13px] text-gray-800 capitalize">{row.provider}</td>
-                                    <td className="px-5 py-5"><TxBadge status={row.status} /></td>
-                                    <td className="px-5 py-5"><TimestampCell date={row.createdAt} /></td>
-                                    <td className="px-5 py-5 text-[13px] text-gray-500">{row.reference}</td>
-                                  </tr>
-                                ))
-                          }
-                        </tbody>
-                      </table>
-                    </div>
-                    <Pagination
-                      currentPage={topupPage}
-                      totalPages={topupMeta?.last_page ?? 1}
-                      onChange={setTopupPage}
-                      loading={loadingTopups}
-                      from={topupMeta?.from ?? undefined}
-                      to={topupMeta?.to ?? undefined}
-                      total={topupMeta?.total}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Swap */}
-              {cwSubTab === 'swap' && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <SearchBar value={swapSearch} onChange={handleSwapSearch} placeholder="Search..." />
-                    <StatusFilter value={swapFilter} onChange={(v) => { setSwapFilter(v); setSwapPage(1); fetchSwaps(swapSearch, v, 1); }} />
-                    <ExportBtn onClick={() => swaps && downloadCSV('swaps', ['Txn ID','User','From Amount','From Currency','To Amount','To Currency','Rate','Status','Timestamp','Reference'],
-                      swaps.map(r => [r.reference ?? r.id, r.user ? `${r.user.firstName} ${r.user.lastName}`.trim() : '', r.fromAmount, r.fromCurrency, r.toAmount, r.toCurrency, r.rate, r.status, r.createdAt, r.reference]))} />
-                  </div>
-                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead><tr style={{ backgroundColor: '#F8F9FA', borderTop: '1.05px solid #E1E4E6', borderBottom: '1.05px solid #E1E4E6' }}>{['Transaction ID','User','Wallet ID','From','To','Rate','Status','Timestamp','Reference'].map((h) => <th key={h} className="pl-5 py-4 text-left whitespace-nowrap" style={{ ...FONT, color: '#6A7377', fontWeight: 400, fontSize: '14.67px', lineHeight: '150%', letterSpacing: '0.02em', paddingRight: '9.43px' }}>{h}</th>)}</tr></thead>
-                        <tbody className="divide-y divide-gray-50">
-                          {loadingSwaps
-                            ? [...Array(4)].map((_, i) => (
-                                <tr key={i}>{[...Array(9)].map((_, j) => <td key={j} className="px-5 py-5"><Skeleton className="h-5 w-full" /></td>)}</tr>
-                              ))
-                            : !swaps || swaps.length === 0
-                              ? <tr><td colSpan={9} className="px-5 py-16 text-center text-sm text-gray-400">No swap transactions available</td></tr>
-                              : swaps.map((row) => (
-                                  <tr key={String(row.id)} className="hover:bg-gray-50/50 transition-colors">
-                                    <td className="px-5 py-5 text-[13px] font-bold text-gray-900">{String(row.reference ?? row.id).slice(0, 12)}</td>
-                                    <td className="px-5 py-5"><UserCell name={row.user ? `${row.user.firstName} ${row.user.lastName}`.trim() : '—'} email={row.user?.changpayId ?? row.user?.email ?? ''} initials={null} /></td>
-                                    <td className="px-5 py-5 text-[13px] font-bold text-gray-900">—</td>
-                                    <td className="px-5 py-5 text-[13px] font-bold text-gray-900"><p>{currencySymbol(row.fromCurrency)}{Number(row.fromAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p><p className="text-xs text-gray-400 font-normal">{row.fromCurrency}</p></td>
-                                    <td className="px-5 py-5 text-[13px] font-bold text-emerald-600"><p>{currencySymbol(row.toCurrency)}{Number(row.toAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p><p className="text-xs text-gray-400 font-normal">{row.toCurrency}</p></td>
-                                    <td className="px-5 py-5 text-[13px] text-gray-700">{row.rate}</td>
-                                    <td className="px-5 py-5"><TxBadge status={row.status} /></td>
-                                    <td className="px-5 py-5"><TimestampCell date={row.createdAt} /></td>
-                                    <td className="px-5 py-5 text-[13px] text-gray-500">{row.reference}</td>
-                                  </tr>
-                                ))
-                          }
-                        </tbody>
-                      </table>
-                    </div>
-                    <Pagination
-                      currentPage={swapPage}
-                      totalPages={swapMeta?.last_page ?? 1}
-                      onChange={setSwapPage}
-                      loading={loadingSwaps}
-                      from={swapMeta?.from ?? undefined}
-                      to={swapMeta?.to ?? undefined}
-                      total={swapMeta?.total}
-                    />
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -902,6 +816,11 @@ export default function WalletManagementPage() {
           {mainTab === 'ledger' && (
             <div className="p-8 space-y-5">
               <div><h2 className="text-lg font-bold text-gray-900">System-Wide Transaction Ledger</h2><p className="text-sm text-gray-500 mt-0.5">Immutable record of all wallet balance changes</p></div>
+              <PillTabs
+                options={LEDGER_ACTIONS}
+                value={ledgerAction}
+                onChange={(v) => { setLedgerAction(v); setLedgerPage(1); fetchLedger(ledgerSearch, v, 1); }}
+              />
               <div className="flex items-center gap-3">
                 <SearchBar value={ledgerSearch} onChange={setLedgerSearch} placeholder="Search by wallet, user, reference, or description..." />
                 <ExportBtn onClick={() => ledger && downloadCSV('ledger',
@@ -964,6 +883,61 @@ export default function WalletManagementPage() {
                   from={ledgerMeta?.from ?? undefined}
                   to={ledgerMeta?.to ?? undefined}
                   total={ledgerMeta?.total}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* ── TOP UP ── */}
+          {mainTab === 'topup' && (
+            <div className="p-8 space-y-5">
+              <div><h2 className="text-lg font-bold text-gray-900">Top Up Transactions</h2><p className="text-sm text-gray-500 mt-0.5">Bank transfer deposits across USD and NGN wallets</p></div>
+              <PillTabs
+                options={TOPUP_CURRENCIES}
+                value={topupCurrency}
+                onChange={(v) => { setTopupCurrency(v); setTopupPage(1); fetchTopups(topupSearch, topupFilter, v, 1); }}
+              />
+              <div className="flex items-center gap-3">
+                <SearchBar value={topupSearch} onChange={handleTopupSearch} placeholder="Search..." />
+                <StatusFilter value={topupFilter} onChange={(v) => { setTopupFilter(v); setTopupPage(1); fetchTopups(topupSearch, v, topupCurrency, 1); }} />
+                <ExportBtn onClick={() => topups && downloadCSV('topups', ['Txn ID','User','Wallet ID','Amount','Currency','Method','Status','Timestamp','Reference'],
+                  topups.map(r => [r.reference ?? r.id, r.user ? `${r.user.firstName} ${r.user.lastName}`.trim() : '', r.wallet?.id ?? '', r.amount, r.currency, r.provider, r.status, r.createdAt, r.reference]))} />
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead><tr style={{ backgroundColor: '#F8F9FA', borderTop: '1.05px solid #E1E4E6', borderBottom: '1.05px solid #E1E4E6' }}>{['Transaction ID','User','Wallet ID','Amount','Method','Status','Timestamp','Reference'].map((h) => <th key={h} className="pl-5 py-4 text-left whitespace-nowrap" style={{ ...FONT, color: '#6A7377', fontWeight: 400, fontSize: '14.67px', lineHeight: '150%', letterSpacing: '0.02em', paddingRight: '9.43px' }}>{h}</th>)}</tr></thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {loadingTopups
+                        ? [...Array(4)].map((_, i) => (
+                            <tr key={i}>{[...Array(8)].map((_, j) => <td key={j} className="px-5 py-5"><Skeleton className="h-5 w-full" /></td>)}</tr>
+                          ))
+                        : !topups || topups.length === 0
+                          ? <tr><td colSpan={8} className="px-5 py-16 text-center text-sm text-gray-400">No topup transactions available</td></tr>
+                          : topups.map((row) => (
+                              <tr key={String(row.id)} className="hover:bg-gray-50/50 transition-colors">
+                                <td className="px-5 py-5 text-[13px] font-bold text-gray-900">{String(row.reference ?? row.id).slice(0, 12)}</td>
+                                <td className="px-5 py-5"><UserCell name={row.user ? `${row.user.firstName} ${row.user.lastName}`.trim() : '—'} email={row.user?.changpayId ?? row.user?.email ?? ''} initials={null} /></td>
+                                <td className="px-5 py-5 text-[13px] font-bold text-gray-900">{row.wallet?.id?.slice(0, 8).toUpperCase() ?? '—'}</td>
+                                <td className="px-5 py-5"><p className="text-[13px] font-bold text-gray-900">{currencySymbol(row.currency)}{Number(row.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p><p className="text-xs text-gray-400">{row.currency}</p></td>
+                                <td className="px-5 py-5 text-[13px] text-gray-800 capitalize">{row.provider}</td>
+                                <td className="px-5 py-5"><TxBadge status={row.status} /></td>
+                                <td className="px-5 py-5"><TimestampCell date={row.createdAt} /></td>
+                                <td className="px-5 py-5 text-[13px] text-gray-500">{row.reference}</td>
+                              </tr>
+                            ))
+                      }
+                    </tbody>
+                  </table>
+                </div>
+                <Pagination
+                  currentPage={topupPage}
+                  totalPages={topupMeta?.last_page ?? 1}
+                  onChange={setTopupPage}
+                  loading={loadingTopups}
+                  from={topupMeta?.from ?? undefined}
+                  to={topupMeta?.to ?? undefined}
+                  total={topupMeta?.total}
                 />
               </div>
             </div>

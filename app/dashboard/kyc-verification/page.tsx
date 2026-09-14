@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 import { kycApi } from '@/lib/api/client';
@@ -334,7 +334,11 @@ function KYCVerificationPageInner() {
   const searchParams = useSearchParams();
 
   const [typeFilter,   setTypeFilter]   = useState<TypeFilter>('all');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => (searchParams.get('status') as StatusFilter) || 'all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
+    const fromUrl = searchParams.get('status');
+    const valid: StatusFilter[] = ['all', 'pending', 'approved', 'rejected'];
+    return (valid as string[]).includes(fromUrl ?? '') ? (fromUrl as StatusFilter) : 'all';
+  });
   const [currentPage,  setCurrentPage]  = useState(1);
 
   const [verifications, setVerifications] = useState<AnyVerification[]>([]);
@@ -348,7 +352,13 @@ function KYCVerificationPageInner() {
   const [isActing,             setIsActing]             = useState(false);
   const [actionError,          setActionError]          = useState<string | null>(null);
 
+  // Guards against out-of-order responses: if the user switches filters quickly,
+  // an older, slower request could resolve after a newer one and overwrite it
+  // with stale data. Only the response matching the latest request is applied.
+  const fetchSeq = useRef(0);
+
   const fetchVerifications = useCallback(async (page: number, type: TypeFilter, status: StatusFilter) => {
+    const seq = ++fetchSeq.current;
     try {
       setIsLoading(true);
       setError(null);
@@ -357,6 +367,7 @@ function KYCVerificationPageInner() {
         type:   type   !== 'all' ? type   : undefined,
         status: status !== 'all' ? status : undefined,
       });
+      if (seq !== fetchSeq.current) return; // superseded by a newer request
       if (res.status) {
         const d = res.data as any;
         if (d && 'data' in d) {
@@ -365,12 +376,22 @@ function KYCVerificationPageInner() {
           setPagination({ total: meta.total, last_page: meta.last_page, from: meta.from, to: meta.to });
         } else {
           setVerifications([]);
+          setPagination(null);
         }
+      } else {
+        // Request completed but the backend rejected it (e.g. an invalid filter value) —
+        // don't leave the previous filter's results on screen looking like a match.
+        setVerifications([]);
+        setPagination(null);
+        setError(res.message || 'Failed to load verifications');
       }
     } catch (err) {
+      if (seq !== fetchSeq.current) return;
+      setVerifications([]);
+      setPagination(null);
       setError(err instanceof Error ? err.message : 'Failed to load verifications');
     } finally {
-      setIsLoading(false);
+      if (seq === fetchSeq.current) setIsLoading(false);
     }
   }, []);
 
@@ -461,10 +482,12 @@ function KYCVerificationPageInner() {
     },
   ];
 
+  // 'under_review' is intentionally not offered here — the backend's verification
+  // stats only track pending/approved/rejected, and filtering by it returns a
+  // 422 "The selected status is invalid" error. Re-add it if the backend adds support.
   const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
     { id: 'all',          label: 'All' },
     { id: 'pending',      label: 'Pending' },
-    { id: 'under_review', label: 'Under Review' },
     { id: 'rejected',     label: 'Rejected' },
   ];
 

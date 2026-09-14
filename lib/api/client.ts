@@ -578,6 +578,25 @@ export const fxApi = {
     authedRequest<{ status: boolean; message: string; data: FxOverrideResult }>(`/fx/override/${rateId}`, {
       method: 'DELETE',
     }),
+
+  /** GET /conversions — paginated list of inter-wallet currency conversion transactions. */
+  getConversions: (params?: {
+    date_from?: string;
+    date_to?: string;
+    from_currency?: 'USD' | 'NGN' | 'YAN';
+    to_currency?: 'USD' | 'NGN' | 'YAN';
+    per_page?: number;
+    search?: string;
+    page?: number;
+  }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => [k, String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<ConversionTransaction> | null }>(
+      `/conversions${query}`
+    );
+  },
 };
 
 // ─── Wallet types ─────────────────────────────────────────────────────────────
@@ -658,6 +677,20 @@ export interface SwapTransaction {
   reference: string;
   fromCurrency: string;
   toCurrency: string;
+  fromAmount: string;
+  toAmount: string;
+  rate: string;
+  status: string;
+  createdAt: string;
+  user?: { firstName: string; lastName: string; email: string; changpayId: string | null; avatar: string | null } | null;
+}
+
+/** GET /conversions — inter-wallet currency conversion transactions (FX Engine "Swap" tab). */
+export interface ConversionTransaction {
+  id: string | number;
+  reference: string;
+  fromCurrency: 'USD' | 'NGN' | 'YAN';
+  toCurrency: 'USD' | 'NGN' | 'YAN';
   fromAmount: string;
   toAmount: string;
   rate: string;
