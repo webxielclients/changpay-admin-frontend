@@ -685,14 +685,18 @@ export interface SwapTransaction {
   user?: { firstName: string; lastName: string; email: string; changpayId: string | null; avatar: string | null } | null;
 }
 
-/** GET /conversions — inter-wallet currency conversion transactions (FX Engine "Swap" tab). */
+
 export interface ConversionTransaction {
   id: string | number;
   reference: string;
   fromCurrency: 'USD' | 'NGN' | 'YAN';
   toCurrency: 'USD' | 'NGN' | 'YAN';
-  fromAmount: string;
-  toAmount: string;
+  fromAmount?: string;
+  toAmount?: string;
+  senderAmount?: string;
+  receiverAmount?: string;
+  amount?: string;
+  convertedAmount?: string;
   rate: string;
   status: string;
   createdAt: string;

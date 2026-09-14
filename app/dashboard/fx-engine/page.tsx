@@ -14,7 +14,7 @@ const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display',
 type MainTab = 'overview' | 'swap';
 type SubTab  = 'live-rates' | 'spread' | 'rate-logs';
 type SwapCurrency = 'USD' | 'NGN' | 'YAN';
-type SwapPairFilter = 'all' | 'NGN-YAN' | 'USD-YAN' | 'USD-NGN' | 'NGN-USD' | 'YAN-USD' | 'YAN-NGN';
+type SwapPairFilter = 'all' | 'NGN-YAN' | 'USD-NGN' | 'NGN-USD' | 'YAN-NGN';
 
 interface LatestChange {
   timestamp: string;
@@ -29,6 +29,16 @@ function fmtDate(s?: string | null) {
   if (!s) return '—';
   const d = new Date(s);
   return isNaN(d.getTime()) ? s : d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+// The /conversions endpoint's amount field names aren't confirmed — tries every
+// plausible key so real data renders even if the "from"/"to" naming guess is wrong.
+function conversionAmount(c: ConversionTransaction, side: 'from' | 'to'): string {
+  const value = side === 'from'
+    ? (c.fromAmount ?? c.senderAmount ?? c.amount)
+    : (c.toAmount ?? c.receiverAmount ?? c.convertedAmount);
+  const n = Number(value);
+  return value != null && !isNaN(n) ? n.toLocaleString('en-US', { minimumFractionDigits: 2 }) : '—';
 }
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
@@ -99,11 +109,11 @@ function ConversionStatusBadge({ status }: { status: string }) {
 }
 
 // ─── Currency pair cell (with right-arrow icon) ───────────────────────────────
-function PairCell({ from, to }: { from: string; to: string }) {
+function PairCell({ from, to, active }: { from: string; to: string; active?: boolean }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+    <span className={`inline-flex items-center gap-1.5 text-sm font-semibold ${active ? 'text-white' : 'text-gray-900'}`}>
       {from}
-      <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+      <svg className={`w-3.5 h-3.5 ${active ? 'text-white' : 'text-gray-400'}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
       </svg>
       {to}
@@ -975,14 +985,12 @@ export default function FXEnginePage() {
           {/* ══════════════════ SWAP ══════════════════ */}
           {mainTab === 'swap' && (() => {
             const totalPages = conversionsMeta?.last_page ?? 1;
-            const PAIR_FILTERS: { id: SwapPairFilter; label: React.ReactNode }[] = [
-              { id: 'all',     label: 'All Pairs' },
-              { id: 'NGN-YAN', label: <PairCell from="NGN" to="YUAN" /> },
-              { id: 'USD-YAN', label: <PairCell from="USD" to="YUAN" /> },
-              { id: 'USD-NGN', label: <PairCell from="USD" to="NGN" /> },
-              { id: 'NGN-USD', label: <PairCell from="NGN" to="USD" /> },
-              { id: 'YAN-USD', label: <PairCell from="YUAN" to="USD" /> },
-              { id: 'YAN-NGN', label: <PairCell from="YUAN" to="NGN" /> },
+            const PAIR_FILTERS: { id: SwapPairFilter; from?: string; to?: string }[] = [
+              { id: 'all' },
+              { id: 'NGN-YAN', from: 'NGN', to: 'YUAN' },
+              { id: 'USD-NGN', from: 'USD', to: 'NGN' },
+              { id: 'NGN-USD', from: 'NGN', to: 'USD' },
+              { id: 'YAN-NGN', from: 'YUAN', to: 'NGN' },
             ];
             return (
               <div className="p-8 space-y-6">
@@ -993,18 +1001,21 @@ export default function FXEnginePage() {
 
                 {/* Pair filter chips */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  {PAIR_FILTERS.map((f) => (
+                  {PAIR_FILTERS.map((f) => {
+                    const active = pairFilter === f.id;
+                    return (
                     <button
                       key={f.id}
                       onClick={() => { setPairFilter(f.id); setConversionsPage(1); }}
                       className="px-4 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap"
-                      style={pairFilter === f.id
+                      style={active
                         ? { backgroundColor: '#009F51', color: '#ffffff' }
                         : { backgroundColor: '#F8F9FA', color: '#374151', border: '1px solid #E1E4E6' }}
                     >
-                      {f.label}
+                      {f.from && f.to ? <PairCell from={f.from} to={f.to} active={active} /> : <span className={active ? 'text-white' : ''}>All Pairs</span>}
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Search */}
@@ -1051,8 +1062,8 @@ export default function FXEnginePage() {
                                       </div>
                                     </td>
                                     <td className="px-5 py-4"><PairCell from={c.fromCurrency} to={c.toCurrency} /></td>
-                                    <td className="px-5 py-4 text-sm text-gray-900">{Number(c.fromAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })} <span className="text-xs text-gray-400">{c.fromCurrency}</span></td>
-                                    <td className="px-5 py-4 text-sm font-semibold text-[#009F51]">{Number(c.toAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })} <span className="text-xs text-gray-400 font-normal">{c.toCurrency}</span></td>
+                                    <td className="px-5 py-4 text-sm text-gray-900">{conversionAmount(c, 'from')} <span className="text-xs text-gray-400">{c.fromCurrency}</span></td>
+                                    <td className="px-5 py-4 text-sm font-semibold text-[#009F51]">{conversionAmount(c, 'to')} <span className="text-xs text-gray-400 font-normal">{c.toCurrency}</span></td>
                                     <td className="px-5 py-4 text-sm text-gray-700">{c.rate}</td>
                                     <td className="px-5 py-4"><ConversionStatusBadge status={c.status} /></td>
                                     <td className="px-5 py-4 text-xs text-gray-500 whitespace-nowrap">{fmtDate(c.createdAt)}</td>
