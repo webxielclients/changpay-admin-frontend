@@ -361,7 +361,8 @@ function KYCVerificationPageInner() {
         const d = res.data as any;
         if (d && 'data' in d) {
           setVerifications(d.data ?? []);
-          setPagination({ total: d.total, last_page: d.last_page, from: d.from, to: d.to });
+          const meta = d.meta ?? d;
+          setPagination({ total: meta.total, last_page: meta.last_page, from: meta.from, to: meta.to });
         } else {
           setVerifications([]);
         }

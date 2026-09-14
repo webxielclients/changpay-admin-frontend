@@ -507,6 +507,23 @@ export interface FxOverrideResult {
   updatedAt: string;
 }
 
+export interface ConversionRateResource {
+  id: number;
+  pair: string;
+  fromCurrency: string;
+  toCurrency: string;
+  rate: string;
+  buyRate: string | null;
+  sellRate: string | null;
+  spreadPercent: number | null;
+  source: string | null;
+  isActive: boolean;
+  isManuallyOverridden: boolean;
+  isDerived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CryptoRate {
   id: number;
   type: 'crypto';
@@ -538,6 +555,12 @@ export const fxApi = {
 
   getConversionRates: () =>
     authedRequest<{ status: boolean; message: string; data: ConversionRate[] }>('/conversion-rates'),
+
+  setConversionRate: (body: { from_currency: string; to_currency: string; rate: number }) =>
+    authedRequest<{ status: boolean; message: string; data: ConversionRateResource }>('/conversion-rates', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   getSpreads: () =>
     authedRequest<{ status: boolean; message: string; data: SpreadConfig[] }>('/fx/spreads'),
@@ -1022,7 +1045,7 @@ export const kycApi = {
       .filter(([, v]) => v != null && v !== '')
       .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
     const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
-    return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<AnyVerification> | null }>(
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<AnyVerification> | null }>(
       `/verifications${query}`
     );
   },

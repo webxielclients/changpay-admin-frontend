@@ -98,9 +98,10 @@ interface RateCardProps {
   hasActiveOverride: boolean;
   onRelease: () => void;
   releasingThis: boolean;
+  onEditRate: () => void;
 }
 
-function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride, hasActiveOverride, onRelease, releasingThis }: RateCardProps) {
+function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride, hasActiveOverride, onRelease, releasingThis, onEditRate }: RateCardProps) {
   return (
     <div className="bg-white rounded-xl overflow-hidden">
       {/* Header */}
@@ -120,6 +121,15 @@ function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride, has
               Overridden
             </span>
           )}
+          <button
+            onClick={onEditRate}
+            title="Edit base rate"
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors flex-shrink-0"
+          >
+            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -282,6 +292,130 @@ function OverrideModal({ rate, onClose, onSuccess }: {
   );
 }
 
+function SetRateModal({ rate, onClose, onSuccess }: {
+  rate?: ConversionRate;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const isEdit = !!rate;
+  const [fromCurrency, setFromCurrency] = useState(rate?.from_currency ?? '');
+  const [toCurrency,   setToCurrency]   = useState(rate?.to_currency ?? '');
+  const [rateValue,    setRateValue]    = useState(rate?.rate ?? '');
+  const [submitting,   setSubmitting]   = useState(false);
+  const [err,          setErr]          = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    const from = fromCurrency.trim().toUpperCase();
+    const to   = toCurrency.trim().toUpperCase();
+    if (!from || !to || !rateValue) {
+      setErr('All fields are required');
+      return;
+    }
+    if (from.length !== 3 || to.length !== 3) {
+      setErr('Currency codes must be exactly 3 characters (e.g. USD)');
+      return;
+    }
+    if (Number(rateValue) <= 0 || Number.isNaN(Number(rateValue))) {
+      setErr('Rate must be a positive number');
+      return;
+    }
+    try {
+      setSubmitting(true);
+      setErr(null);
+      const res = await fxApi.setConversionRate({
+        from_currency: from,
+        to_currency: to,
+        rate: Number(rateValue),
+      });
+      if (res?.status) {
+        onSuccess();
+        onClose();
+      } else {
+        setErr(res?.message ?? 'Failed to save conversion rate');
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed to save conversion rate');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-end">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative bg-white w-full max-w-md h-full overflow-y-auto shadow-2xl p-8 flex flex-col">
+        <button onClick={onClose} className="absolute top-6 right-6 w-8 h-8 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded-full transition-colors">
+          <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+        <div className="mb-8">
+          <h3 className="text-xl font-bold text-gray-900">{isEdit ? 'Update Conversion Rate' : 'Add Conversion Pair'}</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            {isEdit
+              ? <>Currency Pair: <span className="font-semibold text-[#009F51]">{rate!.pair}</span></>
+              : 'Set the base rate for a new or existing currency pair.'}
+          </p>
+        </div>
+        <div className="space-y-5 flex-1">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2">From Currency</label>
+              <input
+                type="text"
+                value={fromCurrency}
+                onChange={(e) => setFromCurrency(e.target.value.toUpperCase())}
+                placeholder="USD"
+                maxLength={3}
+                disabled={isEdit}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm uppercase focus:outline-none focus:ring-2 focus:ring-[#009F51] disabled:bg-gray-50 disabled:text-gray-400"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2">To Currency</label>
+              <input
+                type="text"
+                value={toCurrency}
+                onChange={(e) => setToCurrency(e.target.value.toUpperCase())}
+                placeholder="NGN"
+                maxLength={3}
+                disabled={isEdit}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm uppercase focus:outline-none focus:ring-2 focus:ring-[#009F51] disabled:bg-gray-50 disabled:text-gray-400"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-900 mb-2">Rate</label>
+            <input
+              type="number"
+              value={rateValue}
+              onChange={(e) => setRateValue(e.target.value)}
+              placeholder="0.00"
+              step="any"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#009F51]"
+            />
+            <p className="text-xs text-gray-400 mt-1.5">receiver_amount = sender_amount × rate</p>
+          </div>
+          {err && (
+            <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">{err}</p>
+          )}
+          {!isEdit && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+              <p className="text-xs text-blue-700">If this currency pair already exists, its rate will be updated instead of creating a duplicate.</p>
+            </div>
+          )}
+        </div>
+        <div className="mt-8 space-y-3">
+          <button onClick={onClose} disabled={submitting} className="w-full px-6 py-3 border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors disabled:opacity-50">Cancel</button>
+          <button onClick={handleSubmit} disabled={submitting} className="w-full px-6 py-3 bg-[#009F51] text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-colors disabled:opacity-60">
+            {submitting ? 'Saving…' : isEdit ? 'Update Rate' : 'Save Rate'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Configure Spread Modal ───────────────────────────────────────────────────
 function ConfigureSpreadModal({ spread, onClose }: { spread: SpreadConfig; onClose: () => void }) {
   const [baseSpread, setBaseSpread] = useState(String(spread.baseSpread));
@@ -367,6 +501,7 @@ export default function FXEnginePage() {
   const [appliedOverrides,  setAppliedOverrides]  = useState<Record<string, number>>({});
   const [releasingOverride, setReleasingOverride] = useState<string | null>(null);
   const [overrideModal,     setOverrideModal]     = useState<ConversionRate | null>(null);
+  const [rateModal,         setRateModal]         = useState<{ rate?: ConversionRate } | null>(null);
   const [spreads,           setSpreads]           = useState<SpreadConfig[] | null>(null);
   const [loadingSpreads,    setLoadingSpreads]    = useState(false);
   const [cryptoRates,       setCryptoRates]       = useState<CryptoRateMarkup[] | null>(null);
@@ -554,17 +689,29 @@ export default function FXEnginePage() {
                       </div>
                       <p className="text-sm text-gray-400 whitespace-nowrap mt-1">Last updated: {lastUpdated || '—'}</p>
                     </div>
-                    <button
-                      onClick={fetchOverview}
-                      disabled={isLoading}
-                      className="flex items-center justify-center disabled:opacity-50 transition-colors flex-shrink-0 whitespace-nowrap"
-                      style={{ backgroundColor: '#009F51', color: '#E1F7EB', minWidth: 176, height: 56, gap: 8, borderRadius: 200, padding: 12, ...FONT, fontWeight: 600, fontSize: 20, lineHeight: '120%', letterSpacing: '-1%' }}
-                    >
-                      <svg className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                      </svg>
-                      Refresh Now
-                    </button>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <button
+                        onClick={() => setRateModal({})}
+                        className="flex items-center justify-center transition-colors whitespace-nowrap"
+                        style={{ backgroundColor: '#F8F9FA', color: '#009F51', border: '1.5px solid #009F51', minWidth: 152, height: 56, gap: 8, borderRadius: 200, padding: 12, ...FONT, fontWeight: 600, fontSize: 18, lineHeight: '120%', letterSpacing: '-1%' }}
+                      >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                        Add Pair
+                      </button>
+                      <button
+                        onClick={fetchOverview}
+                        disabled={isLoading}
+                        className="flex items-center justify-center disabled:opacity-50 transition-colors whitespace-nowrap"
+                        style={{ backgroundColor: '#009F51', color: '#E1F7EB', minWidth: 176, height: 56, gap: 8, borderRadius: 200, padding: 12, ...FONT, fontWeight: 600, fontSize: 20, lineHeight: '120%', letterSpacing: '-1%' }}
+                      >
+                        <svg className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                        </svg>
+                        Refresh Now
+                      </button>
+                    </div>
                   </div>
 
                   {isLoading ? (
@@ -591,6 +738,7 @@ export default function FXEnginePage() {
                             hasActiveOverride={appliedOverrides[rate.pair] != null}
                             onRelease={() => handleRelease(rate.pair)}
                             releasingThis={releasingOverride === rate.pair}
+                            onEditRate={() => setRateModal({ rate })}
                           />
                         ))}
                       </div>
@@ -929,6 +1077,13 @@ export default function FXEnginePage() {
       )}
       {configSpreadModal && (
         <ConfigureSpreadModal spread={configSpreadModal} onClose={() => setConfigSpreadModal(null)} />
+      )}
+      {rateModal && (
+        <SetRateModal
+          rate={rateModal.rate}
+          onClose={() => setRateModal(null)}
+          onSuccess={() => { fetchOverview(); }}
+        />
       )}
     </div>
   );
