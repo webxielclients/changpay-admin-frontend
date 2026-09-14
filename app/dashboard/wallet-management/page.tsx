@@ -721,17 +721,21 @@ export default function WalletManagementPage() {
           {mainTab === 'currency-wallets' && (
             <div className="p-8 space-y-5">
                 <div className="space-y-4">
+                  <div className="grid grid-cols-3 gap-3 w-full">
+                    {(['USD', 'NGN', 'YAN'] as CurrencyType[]).map((cur) => (
+                      <button
+                        key={cur}
+                        onClick={() => handleCurrencyChange(cur)}
+                        className="flex items-center justify-center text-sm font-semibold text-center transition-colors rounded-lg"
+                        style={selectedCurrency === cur
+                          ? { backgroundColor: '#009F51', color: '#E1F7EB', height: 48 }
+                          : { backgroundColor: '#F8F9FA', color: '#374151', height: 48 }}
+                      >
+                        {cur === 'YAN' ? 'YUAN Wallet' : `${cur} Wallet`}
+                      </button>
+                    ))}
+                  </div>
                   <div className="flex items-center gap-4">
-                    <div className="relative flex-shrink-0">
-                      <select value={selectedCurrency} onChange={(e) => handleCurrencyChange(e.target.value as CurrencyType)}
-                        className="appearance-none border border-gray-200 pl-3 pr-8 py-2 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 cursor-pointer"
-                        style={{ backgroundColor: '#F8F9FA', borderRadius: 100 }}>
-                        <option value="USD">USD Wallets</option>
-                        <option value="NGN">NGN Wallets</option>
-                        <option value="YAN">YUAN Wallets</option>
-                      </select>
-                      <svg className="w-4 h-4 text-gray-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
-                    </div>
                     <div className="flex items-center gap-2">
                       <CurrencyFlag currency={selectedCurrency} className="w-7 h-5" />
                       <span style={{ ...FONT, color: '#1A1D1F', fontWeight: 600, fontSize: 24, lineHeight: '120%', letterSpacing: '-1%' }}>{currencyLabel(selectedCurrency)}</span>
