@@ -496,9 +496,10 @@ export default function DashboardHome() {
               <div className="flex items-center gap-4">
                 {(['NGN','USD','YAN'] as const).map(cur => {
                   const val = overview?.fx_exposure_summary?.[cur];
+                  const label = cur === 'YAN' ? 'YUAN' : cur;
                   return (
                     <span key={cur} className="text-xs" style={{ color: '#6A7377' }}>
-                      <span className="font-medium">{cur}:</span>{' '}
+                      <span className="font-medium">{label}:</span>{' '}
                       <span className="font-semibold" style={{ color: '#1A1D1F' }}>
                         {val ? val.charAt(0).toUpperCase() + val.slice(1) : '—'}
                       </span>
