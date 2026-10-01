@@ -13,6 +13,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
+  { id: 'treasury', label: 'Treasury & Settlement', path: '/dashboard/treasury', icon: () => <Image src="/walletmag.png" alt="" width={20} height={20} /> },
   {
     id: 'dashboard',
     label: 'Dashboard',

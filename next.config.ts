@@ -14,7 +14,7 @@ const nextConfig = {
     return [
       {
         source: '/api/proxy/:path*',
-        destination: 'https://changpay.cloud/api/admin/:path*',
+        destination: `${(process.env.CHANGPAY_ADMIN_API_URL || 'https://changpay.cloud/api/admin').replace(/\/$/, '')}/:path*`,
       },
     ];
   },
