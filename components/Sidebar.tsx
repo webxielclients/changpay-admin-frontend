@@ -101,7 +101,7 @@ export default function Sidebar() {
       <div className="p-6">
         <Image src="/Group.svg" alt="Changpay Logo" width={150} height={40} className="object-contain" />
       </div>
-      <nav className="flex-1 py-2 px-3 overflow-y-auto" style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
+      <nav className="admin-sidebar-nav flex-1 py-2 px-3 overflow-y-auto">
         {navItems.map((item) => {
           const isActive = pathname === item.path || pathname?.startsWith(item.path + '/');
           return (
