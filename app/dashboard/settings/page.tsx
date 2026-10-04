@@ -20,7 +20,7 @@ export default function SettingsPage() {
   const input = useRef<HTMLInputElement>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [profile, setProfile] = useState({ first_name: user?.first_name ?? '', last_name: user?.last_name ?? '', email: user?.email ?? '' });
+  const [profile, setProfile] = useState({ first_name: user?.first_name ?? '', last_name: user?.last_name ?? '' });
   const [password, setPassword] = useState({ current_password: '', password: '', password_confirmation: '' });
   const [twoFactor, setTwoFactor] = useState<TwoFactorMethod>('totp');
   const [twoFactorStatus, setTwoFactorStatus] = useState<TwoFactorStatus | null>(null);
@@ -76,7 +76,7 @@ export default function SettingsPage() {
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <input className="admin-input" value={profile.first_name} onChange={(e) => setProfile({ ...profile, first_name: e.target.value })} placeholder="First name" />
               <input className="admin-input" value={profile.last_name} onChange={(e) => setProfile({ ...profile, last_name: e.target.value })} placeholder="Last name" />
-              <input className="admin-input sm:col-span-2" value={profile.email} onChange={(e) => setProfile({ ...profile, email: e.target.value })} type="email" placeholder="Email" />
+              {/* Email editing is intentionally disabled. Re-enable only when the backend policy allows it. */}
               <button type="button" disabled={busy} onClick={() => void run(async () => { if (!user) return; const response = await adminSecurityApi.updateProfile(profile); setUser({ ...user, first_name: response.data.firstName, last_name: response.data.lastName, email: response.data.email, avatar_url: response.data.avatarUrl ?? user.avatar_url }); setNotice('Profile updated.'); })} className="admin-button admin-button-secondary w-fit">Save profile</button>
             </div>
 

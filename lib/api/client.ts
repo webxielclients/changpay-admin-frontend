@@ -699,7 +699,7 @@ export interface AdminTwoFactorStatus {
 }
 
 export const adminSecurityApi = {
-  updateProfile: (body: { first_name: string; last_name: string; email: string }) =>
+  updateProfile: (body: { first_name: string; last_name: string }) =>
     authedRequest<{ data: { firstName: string; lastName: string; email: string; avatarUrl?: string | null } }>('/auth/profile', {
       method: 'PUT',
       body: JSON.stringify(body),
