@@ -78,6 +78,8 @@ function authedRequest<T>(endpoint: string, options: RequestInit = {}): Promise<
 
 // ─── Auth types ───────────────────────────────────────────────────────────────
 
+export type TwoFactorMethod = 'email' | 'totp';
+
 interface LoginApiResponse {
   status: boolean;
   message: string;
@@ -97,7 +99,7 @@ interface LoginApiResponse {
     token?: string | null;
     requires_two_factor?: boolean;
     challenge_token?: string;
-    methods?: Array<'email' | 'totp'>;
+    methods?: TwoFactorMethod[];
     admin?: VerifiedUser;
   };
 }
@@ -126,18 +128,49 @@ interface VerifiedUser {
 // ─── Auth API ─────────────────────────────────────────────────────────────────
 
 export const authApi = {
-  login: async (credentials: { email: string; password: string }) => {
+  login: async (credentials: { email: string; password: string }): Promise<
+    | {
+        token: null;
+        user: VerifiedUser | LoginApiResponse['data'];
+        message: string;
+        requiresTwoFactor: true;
+        challengeToken: string | null;
+        methods: TwoFactorMethod[];
+      }
+    | {
+        token: string;
+        user: LoginApiResponse['data'];
+        message: string;
+        requiresTwoFactor: false;
+        challengeToken: null;
+        methods: TwoFactorMethod[];
+      }
+  > => {
     const res = await request<LoginApiResponse>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(credentials),
     });
     if (!res.status) throw new Error(res.message || 'Login failed');
     if (res.data.requires_two_factor) {
-      return { token: null, user: res.data.admin ?? res.data, message: res.message, requiresTwoFactor: true, challengeToken: res.data.challenge_token ?? null, methods: res.data.methods ?? [] };
+      return {
+        token: null,
+        user: res.data.admin ?? res.data,
+        message: res.message,
+        requiresTwoFactor: true,
+        challengeToken: res.data.challenge_token ?? null,
+        methods: res.data.methods ?? [],
+      };
     }
     const token = res.data.token;
     if (!token) throw new Error('Login response did not include a token');
-    return { token, user: res.data, message: res.message, requiresTwoFactor: false, challengeToken: null, methods: [] };
+    return {
+      token,
+      user: res.data,
+      message: res.message,
+      requiresTwoFactor: false,
+      challengeToken: null,
+      methods: [],
+    };
   },
 
   verifyTwoFactorLogin: async (data: { challenge_token: string; method: 'email' | 'totp'; code: string }) => {
