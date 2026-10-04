@@ -14,7 +14,7 @@ import type { LoginInput } from '@/lib/validations/auth';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { handleLogin } = useAuth();
+  const { handleLogin, handleTwoFactorLogin } = useAuth();
   const { isLoading, error } = useAuthStore();
 
   const [formData, setFormData] = useState<LoginInput>({
@@ -24,6 +24,9 @@ export default function LoginPage() {
   });
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [twoFactorChallenge, setTwoFactorChallenge] = useState<{ token: string; methods: Array<'email' | 'totp'> } | null>(null);
+  const [twoFactorMethod, setTwoFactorMethod] = useState<'email' | 'totp'>('totp');
+  const [twoFactorCode, setTwoFactorCode] = useState('');
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
@@ -51,9 +54,24 @@ export default function LoginPage() {
     }
 
     try {
-      await handleLogin(formData);
+      const result = await handleLogin(formData);
+      if (result?.requiresTwoFactor && result.challengeToken) {
+        const methods = result.methods ?? ['totp'];
+        setTwoFactorChallenge({ token: result.challengeToken, methods });
+        setTwoFactorMethod(methods.includes('totp') ? 'totp' : 'email');
+      }
     } catch (error) {
       console.error('Login error:', error);
+    }
+  };
+
+  const handleTwoFactorSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!twoFactorChallenge || twoFactorCode.length !== 6) return;
+    try {
+      await handleTwoFactorLogin(twoFactorChallenge.token, twoFactorMethod, twoFactorCode);
+    } catch (error) {
+      console.error('Two-factor login error:', error);
     }
   };
 
@@ -77,7 +95,15 @@ export default function LoginPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        {twoFactorChallenge ? <form onSubmit={handleTwoFactorSubmit} className="space-y-5">
+          <p className="text-sm text-gray-600">Two-factor verification is required to continue.</p>
+          <select value={twoFactorMethod} onChange={(e) => setTwoFactorMethod(e.target.value as 'email' | 'totp')} className="w-full rounded-lg border border-gray-200 px-3 py-3 text-sm">
+            {twoFactorChallenge.methods.map((method) => <option key={method} value={method}>{method === 'totp' ? 'Authenticator app' : 'Email code'}</option>)}
+          </select>
+          <Input label="Verification code" type="text" name="twoFactorCode" value={twoFactorCode} onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Enter 6-digit code" disabled={isLoading} autoComplete="one-time-code" />
+          <button type="submit" disabled={isLoading || twoFactorCode.length !== 6} className="w-full bg-[#009F51] text-white font-semibold py-3.5 px-6 rounded-xl disabled:opacity-50">{isLoading ? 'Verifying...' : 'Verify and sign in'}</button>
+          <button type="button" onClick={() => setTwoFactorChallenge(null)} className="w-full text-sm text-gray-500">Back to sign in</button>
+        </form> : <form onSubmit={handleSubmit} className="space-y-5">
           <Input
             label="Email"
             type="email"
@@ -137,7 +163,7 @@ export default function LoginPage() {
               </span>
             ) : 'Sign In'}
           </button>
-        </form>
+        </form>}
 
         <SocialLoginButtons
           onGoogleLogin={() => handleSocialLogin('google')}

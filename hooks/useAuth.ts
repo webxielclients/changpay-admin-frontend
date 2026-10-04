@@ -22,10 +22,14 @@ export function useAuth() {
       try {
         setLoading(true);
         clearError();
-        const { token, user } = await authApi.login({
+        const result = await authApi.login({
           email: credentials.email,
           password: credentials.password,
         });
+        if (result.requiresTwoFactor) {
+          return { requiresTwoFactor: true as const, challengeToken: result.challengeToken, methods: result.methods };
+        }
+        const { token, user } = result;
         // Login returns only a token — store minimal user from credentials.
         // Replace with a /auth/me call if that endpoint becomes available.
         // Persist token to plain localStorage key as reliable fallback
@@ -47,12 +51,29 @@ export function useAuth() {
           token
         );
         router.push(AUTH_ROUTES.DASHBOARD);
+        return { requiresTwoFactor: false as const };
       } catch (error) {
         setError(getErrorMessage(error));
         throw error;
       } finally {
         setLoading(false);
       }
+    },
+    [login, router, setError, setLoading, clearError]
+  );
+
+  const handleTwoFactorLogin = useCallback(
+    async (challengeToken: string, method: 'email' | 'totp', code: string) => {
+      try {
+        setLoading(true);
+        clearError();
+        const { token, user } = await authApi.verifyTwoFactorLogin({ challenge_token: challengeToken, method, code });
+        login({ id: user.id, email: user.email, is_admin: true, first_name: user.first_name ?? '', last_name: user.last_name ?? '', email_verified_at: user.email_verified_at, role_id: user.role_id, is_active: user.is_active }, token);
+        router.push(AUTH_ROUTES.DASHBOARD);
+      } catch (error) {
+        setError(getErrorMessage(error));
+        throw error;
+      } finally { setLoading(false); }
     },
     [login, router, setError, setLoading, clearError]
   );
@@ -181,6 +202,7 @@ export function useAuth() {
 
   return {
     handleLogin,
+    handleTwoFactorLogin,
     handleRegister,
     handleVerifyEmail,
     handleResendVerification,

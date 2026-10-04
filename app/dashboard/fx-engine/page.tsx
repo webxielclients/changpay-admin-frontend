@@ -14,8 +14,8 @@ const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display',
 // ─── Types ────────────────────────────────────────────────────────────────────
 type MainTab = 'overview' | 'swap';
 type SubTab  = 'live-rates' | 'spread' | 'rate-logs' | 'providers';
-type SwapCurrency = 'USD' | 'NGN' | 'YAN';
-type SwapPairFilter = 'all' | 'NGN-YAN' | 'USD-NGN' | 'NGN-USD' | 'YAN-NGN';
+type SwapCurrency = 'USD' | 'NGN' | 'YUAN';
+type SwapPairFilter = 'all' | 'NGN-YUAN' | 'USD-NGN' | 'NGN-USD' | 'YUAN-NGN';
 
 interface LatestChange {
   timestamp: string;
@@ -48,12 +48,13 @@ function Skeleton({ className }: { className?: string }) {
 }
 
 // ─── Toggle ───────────────────────────────────────────────────────────────────
-function Toggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ enabled, onChange, disabled = false }: { enabled: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={() => onChange(!enabled)}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 disabled:opacity-50 ${
         enabled ? 'bg-[#009F51]' : 'bg-gray-300'
       }`}
     >
@@ -146,6 +147,7 @@ interface RateCardProps {
 }
 
 function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride, hasActiveOverride, onRelease, releasingThis, onEditRate }: RateCardProps) {
+  const isDerived = Boolean((rate as any).is_derived);
   return (
     <div className="bg-white rounded-xl overflow-hidden">
       {/* Header */}
@@ -220,6 +222,10 @@ function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride, has
             >
               {releasingThis ? 'Releasing…' : 'Release Override'}
             </button>
+          ) : isDerived ? (
+            <span className="px-3 py-1.5 bg-gray-100 text-gray-500 rounded-lg text-xs font-semibold" title="Create a direct base rate before applying a live override">
+              Configure base rate
+            </span>
           ) : (
             <button
               onClick={onOpenOverride}
@@ -229,7 +235,7 @@ function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride, has
               Set Override
             </button>
           )}
-          <Toggle enabled={overrideEnabled} onChange={onToggleOverride} />
+          <Toggle enabled={overrideEnabled} disabled={isDerived} onChange={onToggleOverride} />
         </div>
       </div>
     </div>
@@ -355,8 +361,8 @@ function SetRateModal({ rate, onClose, onSuccess }: {
       setErr('All fields are required');
       return;
     }
-    if (from.length !== 3 || to.length !== 3) {
-      setErr('Currency codes must be exactly 3 characters (e.g. USD)');
+    if (from.length < 3 || from.length > 16 || to.length < 3 || to.length > 16) {
+      setErr('Currency codes must be 3 to 16 uppercase characters (e.g. USD or YUAN)');
       return;
     }
     if (Number(rateValue) <= 0 || Number.isNaN(Number(rateValue))) {
@@ -410,7 +416,7 @@ function SetRateModal({ rate, onClose, onSuccess }: {
                 value={fromCurrency}
                 onChange={(e) => setFromCurrency(e.target.value.toUpperCase())}
                 placeholder="USD"
-                maxLength={3}
+                maxLength={16}
                 disabled={isEdit}
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm uppercase focus:outline-none focus:ring-2 focus:ring-[#009F51] disabled:bg-gray-50 disabled:text-gray-400"
               />
@@ -422,7 +428,7 @@ function SetRateModal({ rate, onClose, onSuccess }: {
                 value={toCurrency}
                 onChange={(e) => setToCurrency(e.target.value.toUpperCase())}
                 placeholder="NGN"
-                maxLength={3}
+                maxLength={16}
                 disabled={isEdit}
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm uppercase focus:outline-none focus:ring-2 focus:ring-[#009F51] disabled:bg-gray-50 disabled:text-gray-400"
               />
@@ -991,10 +997,10 @@ export default function FXEnginePage() {
             const totalPages = conversionsMeta?.last_page ?? 1;
             const PAIR_FILTERS: { id: SwapPairFilter; from?: string; to?: string }[] = [
               { id: 'all' },
-              { id: 'NGN-YAN', from: 'NGN', to: 'YUAN' },
+              { id: 'NGN-YUAN', from: 'NGN', to: 'YUAN' },
               { id: 'USD-NGN', from: 'USD', to: 'NGN' },
               { id: 'NGN-USD', from: 'NGN', to: 'USD' },
-              { id: 'YAN-NGN', from: 'YUAN', to: 'NGN' },
+              { id: 'YUAN-NGN', from: 'YUAN', to: 'NGN' },
             ];
             return (
               <div className="p-8 space-y-6">

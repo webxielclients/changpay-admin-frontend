@@ -94,7 +94,11 @@ interface LoginApiResponse {
     updated_at: string;
     deleted_at: string | null;
     google_id: string | null;
-    token: string;
+    token?: string | null;
+    requires_two_factor?: boolean;
+    challenge_token?: string;
+    methods?: Array<'email' | 'totp'>;
+    admin?: VerifiedUser;
   };
 }
 
@@ -128,9 +132,18 @@ export const authApi = {
       body: JSON.stringify(credentials),
     });
     if (!res.status) throw new Error(res.message || 'Login failed');
+    if (res.data.requires_two_factor) {
+      return { token: null, user: res.data.admin ?? res.data, message: res.message, requiresTwoFactor: true, challengeToken: res.data.challenge_token ?? null, methods: res.data.methods ?? [] };
+    }
     const token = res.data.token;
     if (!token) throw new Error('Login response did not include a token');
-    return { token, user: res.data, message: res.message };
+    return { token, user: res.data, message: res.message, requiresTwoFactor: false, challengeToken: null, methods: [] };
+  },
+
+  verifyTwoFactorLogin: async (data: { challenge_token: string; method: 'email' | 'totp'; code: string }) => {
+    const res = await request<LoginApiResponse>('/auth/two-factor/verify', { method: 'POST', body: JSON.stringify(data) });
+    if (!res.status || !res.data.token) throw new Error(res.message || 'Two-factor verification failed');
+    return { token: res.data.token, user: res.data, message: res.message };
   },
 
   register: async (data: { email: string; password: string; password_confirmation: string }) => {
@@ -603,8 +616,8 @@ export const fxApi = {
   getConversions: (params?: {
     date_from?: string;
     date_to?: string;
-    from_currency?: 'USD' | 'NGN' | 'YAN';
-    to_currency?: 'USD' | 'NGN' | 'YAN';
+    from_currency?: 'USD' | 'NGN' | 'YUAN';
+    to_currency?: 'USD' | 'NGN' | 'YUAN';
     per_page?: number;
     search?: string;
     page?: number;
@@ -644,6 +657,35 @@ export const fxApi = {
 
   getProviderAudit: () =>
     authedRequest<{ data: unknown }>('/fx/pricing/audit'),
+};
+
+export interface AdminTwoFactorStatus {
+  enabled: boolean;
+  email_enabled: boolean;
+  totp_enabled: boolean;
+}
+
+export const adminSecurityApi = {
+  updateProfile: (body: { first_name: string; last_name: string; email: string }) =>
+    authedRequest<{ data: { firstName: string; lastName: string; email: string; avatarUrl?: string | null } }>('/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  changePassword: (body: { current_password: string; password: string; password_confirmation: string }) =>
+    authedRequest<{ data: null }>('/auth/password', { method: 'POST', body: JSON.stringify(body) }),
+  twoFactorStatus: () => authedRequest<{ data: AdminTwoFactorStatus }>('/auth/two-factor'),
+  initiateTwoFactor: (method: 'email' | 'totp') => authedRequest<{ data: { method: string; qr_code_url?: string; message?: string } }>('/auth/two-factor/initiate', {
+    method: 'POST',
+    body: JSON.stringify({ method }),
+  }),
+  confirmTwoFactor: (method: 'email' | 'totp', code: string) => authedRequest<{ data: AdminTwoFactorStatus }>('/auth/two-factor/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ method, code }),
+  }),
+  disableTwoFactor: (method: 'email' | 'totp') => authedRequest<{ data: AdminTwoFactorStatus }>('/auth/two-factor/disable', {
+    method: 'POST',
+    body: JSON.stringify({ method }),
+  }),
 };
 
 // ─── Wallet types ─────────────────────────────────────────────────────────────
