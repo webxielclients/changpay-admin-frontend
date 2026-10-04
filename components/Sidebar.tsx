@@ -13,7 +13,6 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { id: 'treasury', label: 'Treasury & Settlement', path: '/dashboard/treasury', icon: () => <Image src="/walletmag.png" alt="" width={20} height={20} /> },
   {
     id: 'dashboard',
     label: 'Dashboard',
@@ -78,6 +77,12 @@ const navItems: NavItem[] = [
     id: 'roles',
     label: 'Roles & Permissions',
     path: '/dashboard/roles',
+    icon: () => <Image src="/gear.png" alt="" width={20} height={20} />,
+  },
+  {
+    id: 'settings',
+    label: 'Profile & Settings',
+    path: '/dashboard/settings',
     icon: () => <Image src="/gear.png" alt="" width={20} height={20} />,
   },
 ];

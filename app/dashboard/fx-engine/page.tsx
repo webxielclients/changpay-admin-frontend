@@ -7,12 +7,13 @@ import type { ConversionRate, FxOverviewSummary, SpreadConfig, CryptoRateMarkup,
 import DashboardHeader from '@/components/DashboardHeader';
 import Sidebar from '@/components/Sidebar';
 import Image from 'next/image';
+import FxProvidersPanel from '@/components/fx/FxProvidersPanel';
 
 const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif" };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type MainTab = 'overview' | 'swap';
-type SubTab  = 'live-rates' | 'spread' | 'rate-logs';
+type SubTab  = 'live-rates' | 'spread' | 'rate-logs' | 'providers';
 type SwapCurrency = 'USD' | 'NGN' | 'YAN';
 type SwapPairFilter = 'all' | 'NGN-YAN' | 'USD-NGN' | 'NGN-USD' | 'YAN-NGN';
 
@@ -663,6 +664,7 @@ export default function FXEnginePage() {
     { id: 'live-rates', label: 'Live rates' },
     { id: 'spread',     label: 'Spread' },
     { id: 'rate-logs',  label: 'Rate Logs' },
+    { id: 'providers',  label: 'Integrated FX Providers' },
   ];
 
   const activePairs = summary?.active_conversion_pairs ?? conversionRates.filter((r) => r.is_active).length;
@@ -981,6 +983,8 @@ export default function FXEnginePage() {
               )}
             </>
           )}
+
+          {mainTab === 'overview' && subTab === 'providers' && <FxProvidersPanel />}
 
           {/* ══════════════════ SWAP ══════════════════ */}
           {mainTab === 'swap' && (() => {

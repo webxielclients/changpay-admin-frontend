@@ -547,6 +547,26 @@ export interface FxOverviewData {
   summary: FxOverviewSummary;
 }
 
+export interface FxProviderSetting {
+  key: string;
+  name?: string;
+  enabled: boolean;
+  comparison_only?: boolean;
+  max_age_seconds: number;
+  parameters?: Record<string, string | number | boolean> | null;
+  credentials_configured?: boolean;
+  failure_code?: string | null;
+  last_attempt_at?: string | null;
+}
+
+export interface FxPricingSettingsOverview {
+  revision: number;
+  execution_enabled: boolean;
+  currencies: Array<Record<string, unknown>>;
+  providers: FxProviderSetting[];
+  pairs: Array<Record<string, unknown>>;
+}
+
 // ─── FX API ───────────────────────────────────────────────────────────────────
 
 export const fxApi = {
@@ -597,6 +617,33 @@ export const fxApi = {
       `/conversions${query}`
     );
   },
+
+  getProviderSettings: () =>
+    authedRequest<{ data: FxPricingSettingsOverview }>('/fx/pricing'),
+
+  updateProvider: (body: Record<string, unknown>) =>
+    authedRequest<{ data: FxPricingSettingsOverview }>('/fx/pricing/settings/provider', {
+      method: 'PUT',
+      body: JSON.stringify({ ...body, kind: 'provider' }),
+    }),
+
+  updateCurrency: (body: Record<string, unknown>) =>
+    authedRequest<{ data: FxPricingSettingsOverview }>('/fx/pricing/settings/currency', {
+      method: 'PUT',
+      body: JSON.stringify({ ...body, kind: 'currency' }),
+    }),
+
+  updatePair: (body: Record<string, unknown>) =>
+    authedRequest<{ data: FxPricingSettingsOverview }>('/fx/pricing/settings/pair', {
+      method: 'PUT',
+      body: JSON.stringify({ ...body, kind: 'pair' }),
+    }),
+
+  refreshProvider: (provider: string) =>
+    authedRequest<{ data: unknown }>(`/fx/pricing/providers/${encodeURIComponent(provider)}/refresh`, { method: 'POST' }),
+
+  getProviderAudit: () =>
+    authedRequest<{ data: unknown }>('/fx/pricing/audit'),
 };
 
 // ─── Wallet types ─────────────────────────────────────────────────────────────

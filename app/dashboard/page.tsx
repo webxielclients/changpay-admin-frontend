@@ -426,8 +426,8 @@ export default function DashboardHome() {
               subTrendValue={fmtPct(overview?.users?.change_percent) || undefined}
               loading={loadingOverview}
               icon={<Image src="/icon(2).svg" alt="Users" width={34} height={34} />} />
-            <StatCard label="YUAN Wallet Balance" value={fmtBalance(overview?.by_currency?.YAN?.total_balance, '¥')}
-              subLabel={`Last month: ${fmtBalance(overview?.by_currency?.YAN?.last_period_balance, '¥')}`}
+            <StatCard label="YUAN Wallet Balance" value={fmtBalance(overview?.by_currency?.YAN?.total_balance ?? 0, '¥')}
+              subLabel={`Last month: ${fmtBalance(overview?.by_currency?.YAN?.last_period_balance ?? 0, '¥')}`}
               subTrend={overview?.by_currency?.YAN?.change_direction}
               subTrendValue={fmtPct(overview?.by_currency?.YAN?.change_percent) || undefined}
               loading={loadingOverview}
