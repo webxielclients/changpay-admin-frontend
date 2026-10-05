@@ -78,8 +78,6 @@ function authedRequest<T>(endpoint: string, options: RequestInit = {}): Promise<
 
 // ─── Auth types ───────────────────────────────────────────────────────────────
 
-export type TwoFactorMethod = 'email' | 'totp';
-
 interface LoginApiResponse {
   status: boolean;
   message: string;
@@ -99,7 +97,8 @@ interface LoginApiResponse {
     token?: string | null;
     requires_two_factor?: boolean;
     challenge_token?: string;
-    methods?: TwoFactorMethod[];
+    methods?: Array<'email' | 'totp'>;
+    remaining_methods?: Array<'email' | 'totp'>;
     admin?: VerifiedUser;
   };
 }
@@ -128,55 +127,29 @@ interface VerifiedUser {
 // ─── Auth API ─────────────────────────────────────────────────────────────────
 
 export const authApi = {
-  login: async (credentials: { email: string; password: string }): Promise<
-    | {
-        token: null;
-        user: VerifiedUser | LoginApiResponse['data'];
-        message: string;
-        requiresTwoFactor: true;
-        challengeToken: string | null;
-        methods: TwoFactorMethod[];
-      }
-    | {
-        token: string;
-        user: LoginApiResponse['data'];
-        message: string;
-        requiresTwoFactor: false;
-        challengeToken: null;
-        methods: TwoFactorMethod[];
-      }
-  > => {
+  login: async (credentials: { email: string; password: string }) => {
     const res = await request<LoginApiResponse>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(credentials),
     });
     if (!res.status) throw new Error(res.message || 'Login failed');
     if (res.data.requires_two_factor) {
-      return {
-        token: null,
-        user: res.data.admin ?? res.data,
-        message: res.message,
-        requiresTwoFactor: true,
-        challengeToken: res.data.challenge_token ?? null,
-        methods: res.data.methods ?? [],
-      };
+      return { token: null, user: res.data.admin ?? res.data, message: res.message, requiresTwoFactor: true as const, challengeToken: res.data.challenge_token ?? null, methods: (res.data.methods ?? []) as Array<'email' | 'totp'> };
     }
     const token = res.data.token;
     if (!token) throw new Error('Login response did not include a token');
-    return {
-      token,
-      user: res.data,
-      message: res.message,
-      requiresTwoFactor: false,
-      challengeToken: null,
-      methods: [],
-    };
+    return { token, user: res.data, message: res.message, requiresTwoFactor: false as const, challengeToken: null, methods: [] as Array<'email' | 'totp'> };
   },
 
   verifyTwoFactorLogin: async (data: { challenge_token: string; method: 'email' | 'totp'; code: string }) => {
     const res = await request<LoginApiResponse>('/auth/two-factor/verify', { method: 'POST', body: JSON.stringify(data) });
-    if (!res.status || !res.data.token) throw new Error(res.message || 'Two-factor verification failed');
-    return { token: res.data.token, user: res.data, message: res.message };
+    if (!res.status) throw new Error(res.message || 'Two-factor verification failed');
+    return { token: res.data.token ?? null, user: res.data, message: res.message, complete: Boolean(res.data.token), remainingMethods: res.data.remaining_methods ?? [] };
+  },
+
+  me: async () => {
+    const res = await authedRequest<{ status: boolean; message: string; data: { id: number; firstName?: string; lastName?: string; email: string; avatarUrl?: string | null; isActive?: boolean; role?: { permissions?: Array<{ code?: string }> }; permissions?: string[] } }>('/auth/me');
+    return { user: { id: res.data.id, email: res.data.email, first_name: res.data.firstName ?? '', last_name: res.data.lastName ?? '', avatar_url: res.data.avatarUrl ?? null, is_active: res.data.isActive ?? true, permissions: res.data.permissions ?? res.data.role?.permissions?.map((permission) => permission.code ?? '').filter(Boolean) ?? [] }, message: res.message };
   },
 
   register: async (data: { email: string; password: string; password_confirmation: string }) => {
@@ -599,7 +572,6 @@ export interface FxProviderSetting {
   enabled: boolean;
   comparison_only?: boolean;
   max_age_seconds: number;
-  max_change_percent?: number | string;
   parameters?: Record<string, string | number | boolean> | null;
   credentials_configured?: boolean;
   failure_code?: string | null;
@@ -650,8 +622,8 @@ export const fxApi = {
   getConversions: (params?: {
     date_from?: string;
     date_to?: string;
-    from_currency?: 'USD' | 'NGN' | 'YUAN';
-    to_currency?: 'USD' | 'NGN' | 'YUAN';
+    from_currency?: 'USD' | 'NGN' | 'YAN';
+    to_currency?: 'USD' | 'NGN' | 'YAN';
     per_page?: number;
     search?: string;
     page?: number;
@@ -686,12 +658,6 @@ export const fxApi = {
       body: JSON.stringify({ ...body, kind: 'pair' }),
     }),
 
-  previewPair: (body: Record<string, unknown>) =>
-    authedRequest<{ data: { safe: boolean; pair: Record<string, unknown>; edges: Record<string, unknown>; expires_at: string } }>('/fx/pricing/settings/pair/preview', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
   refreshProvider: (provider: string) =>
     authedRequest<{ data: unknown }>(`/fx/pricing/providers/${encodeURIComponent(provider)}/refresh`, { method: 'POST' }),
 
@@ -714,18 +680,24 @@ export const adminSecurityApi = {
   changePassword: (body: { current_password: string; password: string; password_confirmation: string }) =>
     authedRequest<{ data: null }>('/auth/password', { method: 'POST', body: JSON.stringify(body) }),
   twoFactorStatus: () => authedRequest<{ data: AdminTwoFactorStatus }>('/auth/two-factor'),
-  initiateTwoFactor: (method: 'email' | 'totp') => authedRequest<{ data: { method: string; qr_code_url?: string; message?: string } }>('/auth/two-factor/initiate', {
+  initiateTwoFactor: (method: 'email' | 'totp', current_password: string) => authedRequest<{ data: { method: string; secret?: string; qr_code_data_uri?: string; otpauth_uri?: string; message?: string } }>('/auth/two-factor/initiate', {
     method: 'POST',
-    body: JSON.stringify({ method }),
+    body: JSON.stringify({ method, current_password }),
   }),
   confirmTwoFactor: (method: 'email' | 'totp', code: string) => authedRequest<{ data: AdminTwoFactorStatus }>('/auth/two-factor/confirm', {
     method: 'POST',
     body: JSON.stringify({ method, code }),
   }),
-  disableTwoFactor: (method: 'email' | 'totp') => authedRequest<{ data: AdminTwoFactorStatus }>('/auth/two-factor/disable', {
+  disableTwoFactor: (method: 'email' | 'totp', current_password: string) => authedRequest<{ data: AdminTwoFactorStatus }>('/auth/two-factor/disable', {
     method: 'POST',
-    body: JSON.stringify({ method }),
+    body: JSON.stringify({ method, current_password }),
   }),
+  uploadAvatar: (file: File) => {
+    const token = useAuthStore.getState().token ?? (typeof window !== 'undefined' ? localStorage.getItem('token') : null);
+    const form = new FormData(); form.append('avatar', file);
+    return fetch(`${BASE_URL}/auth/avatar`, { method: 'POST', headers: token ? { Authorization: `Bearer ${token}`, Accept: 'application/json' } : { Accept: 'application/json' }, body: form })
+      .then(async (response) => { const data = await response.json(); if (!response.ok) throw new Error(data.message ?? 'Unable to upload profile picture.'); return data as { data: { avatar_url?: string | null; avatarUrl?: string | null } }; });
+  },
 };
 
 // ─── Wallet types ─────────────────────────────────────────────────────────────

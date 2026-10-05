@@ -2,6 +2,7 @@
 
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { useAuthStore } from '@/store/authStore';
 import { JSX } from 'react';
 import Image from 'next/image';
 
@@ -10,43 +11,51 @@ interface NavItem {
   label: string;
   path: string;
   icon: (isActive: boolean) => JSX.Element;
+  permission: string;
 }
 
 const navItems: NavItem[] = [
+  { id: 'treasury', label: 'Treasury & Settlement', path: '/dashboard/treasury', permission: 'treasury.view', icon: () => <Image src="/walletmag.png" alt="" width={20} height={20} /> },
   {
     id: 'dashboard',
     label: 'Dashboard',
     path: '/dashboard',
+    permission: 'dashboard.view',
     icon: () => <Image src="/Grid.png" alt="" width={20} height={20} />,
   },
   {
     id: 'users',
     label: 'Users & Accounts',
     path: '/dashboard/users',
+    permission: 'user_management.view',
     icon: () => <Image src="/UsersAcct.png" alt="" width={20} height={20} />,
   },
   {
     id: 'transactions',
     label: 'Transactions',
     path: '/dashboard/transactions',
+    permission: 'transactions.view',
     icon: () => <Image src="/UsersAcct.png" alt="" width={20} height={20} />,
   },
   {
     id: 'wallet-management',
     label: 'Wallet Management',
     path: '/dashboard/wallet-management',
+    permission: 'wallet_management.view',
     icon: () => <Image src="/walletmag.png" alt="" width={20} height={20} />,
   },
   {
     id: 'fx-engine',
     label: 'FX Engine',
     path: '/dashboard/fx-engine',
+    permission: 'fx_engine.view',
     icon: () => <Image src="/fxeng.png" alt="" width={20} height={20} />,
   },
   {
     id: 'banks-payouts',
     label: 'Banks and Payouts',
     path: '/dashboard/banks-payouts',
+    permission: 'banks_payouts.view_banks',
     icon: () => <Image src="/bankpay.png" alt="" width={20} height={20} />,
   },
   // {
@@ -59,30 +68,28 @@ const navItems: NavItem[] = [
     id: 'compliance-risk',
     label: 'Compliance & risk Kyc/Kyb',
     path: '/dashboard/kyc-verification',
+    permission: 'kyb_kyc.view_kyc',
     icon: () => <Image src="/gear.png" alt="" width={20} height={20} />,
   },
   {
     id: 'promotions',
     label: 'Promotions',
     path: '/dashboard/promotions',
+    permission: 'promotions.view',
     icon: () => <Image src="/gear.png" alt="" width={20} height={20} />,
   },
   {
     id: 'support',
     label: 'Support & Disputes',
     path: '/dashboard/support',
+    permission: 'support.view',
     icon: () => <Image src="/gear.png" alt="" width={20} height={20} />,
   },
   {
     id: 'roles',
     label: 'Roles & Permissions',
     path: '/dashboard/roles',
-    icon: () => <Image src="/gear.png" alt="" width={20} height={20} />,
-  },
-  {
-    id: 'settings',
-    label: 'Profile & Settings',
-    path: '/dashboard/settings',
+    permission: 'roles_permissions.view',
     icon: () => <Image src="/gear.png" alt="" width={20} height={20} />,
   },
 ];
@@ -91,6 +98,8 @@ export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const { handleLogout } = useAuth();
+  const permissions = useAuthStore((state) => state.user?.permissions ?? []);
+  const hasPermissionData = permissions.length > 0;
 
   const handleNavigation = (path: string) => {
     router.push(path);
@@ -101,8 +110,8 @@ export default function Sidebar() {
       <div className="p-6">
         <Image src="/Group.svg" alt="Changpay Logo" width={150} height={40} className="object-contain" />
       </div>
-      <nav className="admin-sidebar-nav flex-1 py-2 px-3 overflow-y-auto">
-        {navItems.map((item) => {
+      <nav className="flex-1 py-2 px-3 overflow-y-auto" style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
+        {navItems.filter((item) => !hasPermissionData || permissions.includes(item.permission)).map((item) => {
           const isActive = pathname === item.path || pathname?.startsWith(item.path + '/');
           return (
             <button

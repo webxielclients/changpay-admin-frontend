@@ -287,6 +287,7 @@ const PENDING_ACTIONS = [
 export default function DashboardHome() {
   const router = useRouter();
   const { isAuthenticated, user } = useAuthStore();
+  const canViewDashboard = !user?.permissions || user.permissions.includes('dashboard.view');
 
   const [overview,        setOverview]        = useState<DashboardOverviewData | null>(null);
   const [chartData,       setChartData]       = useState<ChartData | null>(null);
@@ -319,9 +320,9 @@ export default function DashboardHome() {
   }, []);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !canViewDashboard) return;
     fetchOverview(); fetchChart(chartInterval); fetchTransactions();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, canViewDashboard]);
 
   /* close filter dropdown on outside click */
   useEffect(() => {
@@ -333,6 +334,9 @@ export default function DashboardHome() {
   }, []);
 
   if (!isAuthenticated) return null;
+  if (!canViewDashboard) {
+    return <div className="flex h-screen bg-white"><Sidebar /><main className="flex-1 flex items-center justify-center"><div className="text-center"><h1 className="text-3xl font-semibold text-[#012D32]">Welcome, {user?.first_name ?? user?.email?.split('@')[0] ?? 'Admin'}</h1><p className="mt-2 text-gray-500">Your account is active. No dashboard access has been assigned.</p></div></main></div>;
+  }
 
   const selectedLabel = INTERVAL_OPTIONS.find(o => o.key === chartInterval)?.label ?? 'This Month';
 
@@ -426,8 +430,8 @@ export default function DashboardHome() {
               subTrendValue={fmtPct(overview?.users?.change_percent) || undefined}
               loading={loadingOverview}
               icon={<Image src="/icon(2).svg" alt="Users" width={34} height={34} />} />
-            <StatCard label="YUAN Wallet Balance" value={fmtBalance(overview?.by_currency?.YAN?.total_balance ?? 0, '¥')}
-              subLabel={`Last month: ${fmtBalance(overview?.by_currency?.YAN?.last_period_balance ?? 0, '¥')}`}
+            <StatCard label="YUAN Wallet Balance" value={fmtBalance(overview?.by_currency?.YAN?.total_balance, '¥')}
+              subLabel={`Last month: ${fmtBalance(overview?.by_currency?.YAN?.last_period_balance, '¥')}`}
               subTrend={overview?.by_currency?.YAN?.change_direction}
               subTrendValue={fmtPct(overview?.by_currency?.YAN?.change_percent) || undefined}
               loading={loadingOverview}

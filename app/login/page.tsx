@@ -69,7 +69,12 @@ export default function LoginPage() {
     e.preventDefault();
     if (!twoFactorChallenge || twoFactorCode.length !== 6) return;
     try {
-      await handleTwoFactorLogin(twoFactorChallenge.token, twoFactorMethod, twoFactorCode);
+      const result = await handleTwoFactorLogin(twoFactorChallenge.token, twoFactorMethod, twoFactorCode);
+      if (result?.complete === false && result.remainingMethods?.length) {
+        setTwoFactorChallenge({ token: twoFactorChallenge.token, methods: result.remainingMethods });
+        setTwoFactorMethod(result.remainingMethods[0]);
+        setTwoFactorCode('');
+      }
     } catch (error) {
       console.error('Two-factor login error:', error);
     }
@@ -96,10 +101,7 @@ export default function LoginPage() {
         )}
 
         {twoFactorChallenge ? <form onSubmit={handleTwoFactorSubmit} className="space-y-5">
-          <p className="text-sm text-gray-600">Two-factor verification is required to continue.</p>
-          <select value={twoFactorMethod} onChange={(e) => setTwoFactorMethod(e.target.value as 'email' | 'totp')} className="w-full rounded-lg border border-gray-200 px-3 py-3 text-sm">
-            {twoFactorChallenge.methods.map((method) => <option key={method} value={method}>{method === 'totp' ? 'Authenticator app' : 'Email code'}</option>)}
-          </select>
+          <p className="text-sm text-gray-600">Verify your {twoFactorMethod === 'totp' ? 'authenticator' : 'email'} code to continue.{twoFactorChallenge.methods.length > 1 ? ' A second verification will be required.' : ''}</p>
           <Input label="Verification code" type="text" name="twoFactorCode" value={twoFactorCode} onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Enter 6-digit code" disabled={isLoading} autoComplete="one-time-code" />
           <button type="submit" disabled={isLoading || twoFactorCode.length !== 6} className="w-full bg-[#009F51] text-white font-semibold py-3.5 px-6 rounded-xl disabled:opacity-50">{isLoading ? 'Verifying...' : 'Verify and sign in'}</button>
           <button type="button" onClick={() => setTwoFactorChallenge(null)} className="w-full text-sm text-gray-500">Back to sign in</button>

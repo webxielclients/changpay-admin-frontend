@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
+import { authApi } from '@/lib/api/client';
 import { AUTH_ROUTES } from '@/constants/auth';
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isAuthenticated, _hasHydrated } = useAuthStore();
+  const { isAuthenticated, _hasHydrated, setUser } = useAuthStore();
   const [timedOut, setTimedOut] = useState(false);
 
   // Safety net: if hydration takes more than 1 second something is wrong.
@@ -23,6 +24,11 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
       router.push(AUTH_ROUTES.LOGIN);
     }
   }, [_hasHydrated, timedOut, isAuthenticated, router]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    void authApi.me().then((response) => setUser(response.user)).catch(() => undefined);
+  }, [isAuthenticated, setUser]);
 
   // Not yet hydrated and not timed out — show brief spinner
   if (!_hasHydrated && !timedOut) {

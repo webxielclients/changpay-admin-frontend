@@ -4,123 +4,40 @@ import { useEffect, useRef, useState } from 'react';
 import DashboardHeader from '@/components/DashboardHeader';
 import Sidebar from '@/components/Sidebar';
 import { useAuthStore } from '@/store/authStore';
-import { adminSecurityApi } from '@/lib/api/client';
+import { adminSecurityApi, authApi } from '@/lib/api/client';
+import { toast } from 'sonner';
 
 const twoFactorEnabled = process.env.NEXT_PUBLIC_ENABLE_2FA !== 'false';
-
-type TwoFactorMethod = 'email' | 'totp';
-
-interface TwoFactorStatus {
-  email_enabled: boolean;
-  totp_enabled: boolean;
-}
+type Method = 'email' | 'totp';
+type Setup = { method: Method; secret?: string; qr_code_data_uri?: string; otpauth_uri?: string } | null;
 
 export default function SettingsPage() {
-  const { user, setAvatar, setUser } = useAuthStore();
+  const { user, setUser, setAvatar } = useAuthStore();
   const input = useRef<HTMLInputElement>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [profile, setProfile] = useState({ first_name: user?.first_name ?? '', last_name: user?.last_name ?? '' });
   const [password, setPassword] = useState({ current_password: '', password: '', password_confirmation: '' });
-  const [twoFactor, setTwoFactor] = useState<TwoFactorMethod>('totp');
-  const [twoFactorStatus, setTwoFactorStatus] = useState<TwoFactorStatus | null>(null);
-  const [verificationCode, setVerificationCode] = useState('');
-  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
+  const [setupPassword, setSetupPassword] = useState('');
+  const [code, setCode] = useState('');
+  const [setup, setSetup] = useState<Setup>(null);
+  const [status, setStatus] = useState({ email_enabled: false, totp_enabled: false });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setProfile({ first_name: user?.first_name ?? '', last_name: user?.last_name ?? '' });
-  }, [user?.first_name, user?.last_name]);
+    void authApi.me().then((response) => { setUser(response.user); setProfile({ first_name: response.user.first_name ?? '', last_name: response.user.last_name ?? '' }); }).catch(() => undefined);
+    if (twoFactorEnabled) void adminSecurityApi.twoFactorStatus().then((response) => setStatus(response.data)).catch(() => undefined);
+  }, [setUser]);
 
-  useEffect(() => {
-    if (!twoFactorEnabled) return;
-    void adminSecurityApi.twoFactorStatus().then((response) => setTwoFactorStatus(response.data)).catch(() => undefined);
-  }, []);
+  const run = async (action: () => Promise<void>) => { setBusy(true); try { await action(); } catch (error) { toast.error(error instanceof Error ? error.message : 'Request failed.'); } finally { setBusy(false); } };
 
-  const run = async (action: () => Promise<void>) => {
-    try {
-      setBusy(true);
-      setError(null);
-      setNotice(null);
-      await action();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Request failed.');
-    } finally {
-      setBusy(false);
-    }
-  };
+  const uploadAvatar = async (file: File) => run(async () => { const response = await adminSecurityApi.uploadAvatar(file); setAvatar(response.data.avatar_url ?? response.data.avatarUrl ?? null); toast.success('Profile picture updated.'); });
+  const startSetup = (method: Method) => run(async () => { const response = await adminSecurityApi.initiateTwoFactor(method, setupPassword); const { method: _responseMethod, ...setupData } = response.data; void _responseMethod; setSetup({ method, ...setupData }); toast.success(response.data.message ?? 'Verification started.'); });
+  const confirmSetup = () => run(async () => { if (!setup) return; const response = await adminSecurityApi.confirmTwoFactor(setup.method, code); setStatus(response.data); setSetup(null); setCode(''); setSetupPassword(''); toast.success(`${setup.method === 'totp' ? 'Authenticator' : 'Email'} two-factor authentication enabled.`); });
+  const disable = (method: Method) => run(async () => { const response = await adminSecurityApi.disableTwoFactor(method, setupPassword); setStatus(response.data); setSetupPassword(''); toast.success(`${method === 'totp' ? 'Authenticator' : 'Email'} two-factor authentication disabled.`); });
 
-  const uploadAvatar = async (file: File) => {
-    const token = localStorage.getItem('token');
-    const form = new FormData();
-    form.append('avatar', file);
-
-    try {
-      const response = await fetch('/api/proxy/auth/avatar', { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: form });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message ?? 'Unable to upload profile picture.');
-      setAvatar(payload.data?.avatar_url ?? payload.data?.avatarUrl ?? null);
-      setNotice('Profile picture updated.');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unable to upload profile picture.');
-    }
-  };
-
-  return (
-    <div className="admin-page flex h-screen">
-      <Sidebar />
-      <main className="admin-content">
-        <DashboardHeader title="Profile & Settings" subtitle="Manage your profile and account security" large />
-
-        {(notice || error) && <p className={`mt-5 rounded-xl px-4 py-3 text-sm ${error ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>{error ?? notice}</p>}
-
-        <section className="admin-section space-y-6">
-          <div className="admin-card">
-            <h2 className="text-lg font-semibold text-gray-900">Edit profile</h2>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <input className="admin-input" value={profile.first_name} onChange={(e) => setProfile({ ...profile, first_name: e.target.value })} placeholder="First name" />
-              <input className="admin-input" value={profile.last_name} onChange={(e) => setProfile({ ...profile, last_name: e.target.value })} placeholder="Last name" />
-              {/* Email editing is intentionally disabled. Re-enable only when the backend policy allows it. */}
-              <button type="button" disabled={busy} onClick={() => void run(async () => { if (!user) return; const response = await adminSecurityApi.updateProfile(profile); setUser({ ...user, first_name: response.data.firstName, last_name: response.data.lastName, email: response.data.email, avatar_url: response.data.avatarUrl ?? user.avatar_url }); setNotice('Profile updated.'); })} className="admin-button admin-button-secondary w-fit">Save profile</button>
-            </div>
-
-            <div className="mt-5 flex items-center gap-4">
-              {user?.avatar_url ? <img src={user.avatar_url} alt="Profile" className="h-16 w-16 rounded-full object-cover" /> : <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#E1F7EB] text-xl font-semibold text-[#009F51]">{(user?.first_name?.[0] ?? user?.email?.[0] ?? 'A').toUpperCase()}</div>}
-              <div>
-                <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void uploadAvatar(file); }} />
-                <button type="button" onClick={() => input.current?.click()} className="admin-button admin-button-primary">Update profile picture</button>
-                <p className="mt-1 text-xs text-gray-500">{user?.first_name ?? ''} {user?.last_name ?? ''} · {user?.email ?? ''}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="admin-card">
-            <h2 className="text-lg font-semibold text-gray-900">Password and two-factor authentication</h2>
-            <p className="mt-2 text-sm text-gray-500">{twoFactorEnabled ? 'Two-factor controls are enabled.' : 'Two-factor controls are disabled by NEXT_PUBLIC_ENABLE_2FA.'}</p>
-
-            <div className="mt-5 space-y-3">
-              <input className="admin-input" value={password.current_password} onChange={(e) => setPassword({ ...password, current_password: e.target.value })} type="password" placeholder="Current password" />
-              <input className="admin-input" value={password.password} onChange={(e) => setPassword({ ...password, password: e.target.value })} type="password" placeholder="New password (minimum 12 characters)" />
-              <input className="admin-input" value={password.password_confirmation} onChange={(e) => setPassword({ ...password, password_confirmation: e.target.value })} type="password" placeholder="Confirm new password" />
-              <button type="button" disabled={busy} onClick={() => void run(async () => { await adminSecurityApi.changePassword(password); setPassword({ current_password: '', password: '', password_confirmation: '' }); setNotice('Password updated.'); })} className="admin-button admin-button-primary">Update password</button>
-
-              {twoFactorEnabled && <>
-                <div className="flex flex-wrap items-center gap-2 pt-3">
-                  <select className="admin-input w-auto" value={twoFactor} onChange={(e) => setTwoFactor(e.target.value as TwoFactorMethod)}><option value="totp">Authenticator app</option><option value="email">Email code</option></select>
-                  <button type="button" disabled={busy} onClick={() => void run(async () => { const response = await adminSecurityApi.initiateTwoFactor(twoFactor); setQrCodeUrl(response.data.qr_code_url ?? null); setNotice(response.data.message ?? 'Verification started.'); })} className="admin-button admin-button-secondary">Start setup</button>
-                </div>
-                {qrCodeUrl && <div className="rounded-lg bg-gray-50 p-3 text-xs break-all">Scan this authenticator URI, then enter the generated six-digit code: {qrCodeUrl}</div>}
-                <div className="flex gap-2">
-                  <input className="admin-input" value={verificationCode} onChange={(e) => setVerificationCode(e.target.value)} maxLength={6} placeholder="6-digit verification code" />
-                  <button type="button" disabled={busy || verificationCode.length !== 6} onClick={() => void run(async () => { const response = await adminSecurityApi.confirmTwoFactor(twoFactor, verificationCode); setTwoFactorStatus(response.data); setVerificationCode(''); setNotice('Two-factor authentication enabled.'); })} className="admin-button admin-button-primary whitespace-nowrap">Confirm</button>
-                </div>
-                <button type="button" disabled={busy} onClick={() => void run(async () => { const response = await adminSecurityApi.disableTwoFactor(twoFactor); setTwoFactorStatus(response.data); setNotice('Two-factor authentication disabled for the selected method.'); })} className="admin-button admin-button-danger">Disable selected method</button>
-                {twoFactorStatus && <p className="text-xs text-gray-500">Email: {twoFactorStatus.email_enabled ? 'enabled' : 'disabled'} · Authenticator: {twoFactorStatus.totp_enabled ? 'enabled' : 'disabled'}</p>}
-              </>}
-            </div>
-          </div>
-        </section>
-      </main>
-    </div>
-  );
+  return <div className="flex h-screen bg-white"><Sidebar /><main className="flex-1 overflow-y-auto px-8 py-6"><DashboardHeader title="Profile & Settings" subtitle="Manage your profile and account security" large /><section className="mt-8 max-w-2xl space-y-6">
+    <div className="rounded-2xl border border-gray-100 p-6"><h2 className="text-lg font-semibold text-gray-900">Profile picture</h2><div className="mt-4 flex items-center gap-4">{user?.avatar_url ? <img src={user.avatar_url} alt="Profile" className="h-20 w-20 rounded-full object-cover" /> : <div className="h-20 w-20 rounded-full bg-[#E1F7EB] flex items-center justify-center text-xl font-semibold text-[#009F51]">{(user?.first_name?.[0] ?? user?.email?.[0] ?? 'A').toUpperCase()}</div>}<div><input ref={input} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) void uploadAvatar(file); }} /><button type="button" disabled={busy} onClick={() => input.current?.click()} className="rounded-lg bg-[#009F51] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Update profile picture</button><p className="mt-1 text-xs text-gray-500">JPG, PNG or WebP. Maximum 5 MB.</p></div></div></div>
+    <div className="rounded-2xl border border-gray-100 p-6"><h2 className="text-lg font-semibold text-gray-900">Edit profile details</h2><div className="mt-4 grid gap-3 sm:grid-cols-2"><input value={profile.first_name} onChange={(e) => setProfile({ ...profile, first_name: e.target.value })} placeholder="First name" className="rounded-lg border border-gray-200 px-3 py-2 text-sm" /><input value={profile.last_name} onChange={(e) => setProfile({ ...profile, last_name: e.target.value })} placeholder="Last name" className="rounded-lg border border-gray-200 px-3 py-2 text-sm" /><input value={user?.email ?? ''} readOnly aria-readonly="true" type="email" className="cursor-not-allowed rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 sm:col-span-2" /><p className="text-xs text-gray-500 sm:col-span-2">Email cannot be edited from the profile page.</p><button type="button" disabled={busy} onClick={() => void run(async () => { if (!user) return; const response = await adminSecurityApi.updateProfile(profile); setUser({ ...user, first_name: response.data.firstName, last_name: response.data.lastName }); toast.success('Profile details updated.'); })} className="w-fit rounded-lg border border-[#009F51] px-4 py-2 text-sm font-semibold text-[#009F51] disabled:opacity-50">Save details</button></div></div>
+    <div className="rounded-2xl border border-gray-100 p-6"><h2 className="text-lg font-semibold text-gray-900">Password</h2><div className="mt-4 space-y-3"><input value={password.current_password} onChange={(e) => setPassword({ ...password, current_password: e.target.value })} type="password" placeholder="Current password" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /><input value={password.password} onChange={(e) => setPassword({ ...password, password: e.target.value })} type="password" placeholder="New password" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /><input value={password.password_confirmation} onChange={(e) => setPassword({ ...password, password_confirmation: e.target.value })} type="password" placeholder="Confirm new password" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /><button type="button" disabled={busy} onClick={() => void run(async () => { await adminSecurityApi.changePassword(password); setPassword({ current_password: '', password: '', password_confirmation: '' }); toast.success('Password updated.'); })} className="rounded-lg bg-[#009F51] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Update password</button></div></div>
+    {twoFactorEnabled && <div className="rounded-2xl border border-gray-100 p-6"><h2 className="text-lg font-semibold text-gray-900">Two-factor authentication</h2><p className="mt-2 text-sm text-gray-500">If both methods are enabled, login requires both the email code and authenticator code.</p><input value={setupPassword} onChange={(e) => setSetupPassword(e.target.value)} type="password" placeholder="Account password required for setup or disable" className="mt-4 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /><div className="mt-4 grid gap-4 md:grid-cols-2">{(['email', 'totp'] as Method[]).map((method) => { const enabled = method === 'email' ? status.email_enabled : status.totp_enabled; const activeSetup = setup?.method === method; return <div key={method} className="rounded-xl border border-gray-200 p-4"><div className="flex items-center justify-between"><h3 className="font-semibold">{method === 'email' ? 'Email 2FA' : 'Authenticator 2FA'}</h3><span className={enabled ? 'text-green-600 text-sm' : 'text-gray-400 text-sm'}>{enabled ? 'Enabled' : 'Disabled'}</span></div>{!enabled ? <button type="button" disabled={busy || !setupPassword} onClick={() => void startSetup(method)} className="mt-4 rounded-lg border border-[#009F51] px-3 py-2 text-sm font-semibold text-[#009F51] disabled:opacity-50">Set up</button> : <button type="button" disabled={busy || !setupPassword} onClick={() => void disable(method)} className="mt-4 rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 disabled:opacity-50">Disable</button>}{activeSetup && <div className="mt-4 space-y-3">{method === 'totp' && setup?.qr_code_data_uri && <img src={setup.qr_code_data_uri} alt="Authenticator QR code" className="h-48 w-48 rounded-lg border p-2" />}{method === 'totp' && setup?.secret && <div className="flex items-center gap-2"><code className="break-all rounded bg-gray-50 px-2 py-1 text-xs">{setup.secret}</code><button type="button" onClick={() => { void navigator.clipboard.writeText(setup.secret ?? ''); toast.success('Secret copied.'); }} className="text-xs text-[#009F51]">Copy</button></div>}<input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} maxLength={6} placeholder={method === 'totp' ? 'Authenticator code' : 'Email code'} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /><button type="button" disabled={busy || code.length !== 6} onClick={() => void confirmSetup()} className="rounded-lg bg-[#009F51] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Confirm and enable</button></div>}</div>; })}</div></div>}
+  </section></main></div>;
 }
