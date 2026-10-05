@@ -10,7 +10,9 @@ const PROVIDER_LABELS: Record<string, string> = {
   abokifx: 'AbokiFX (comparison only)',
 };
 
-export default function FxProvidersPanel() {
+type FxPanelMode = 'all' | 'providers' | 'pairs';
+
+export default function FxProvidersPanel({ mode = 'all' }: { mode?: FxPanelMode }) {
   const [overview, setOverview] = useState<FxPricingSettingsOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -80,12 +82,12 @@ export default function FxProvidersPanel() {
         <p className="text-sm text-gray-500 mt-1">Manage encrypted credentials, freshness limits and provider availability. AbokiFX remains comparison-only.</p>
       </div>
       {(error || message) && <div className={`rounded-xl px-4 py-3 text-sm ${error ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>{error ?? message}</div>}
-      <div className="grid gap-4 lg:grid-cols-2">
+      {mode !== 'pairs' && <div className="grid gap-4 lg:grid-cols-2">
         {overview.providers.map((provider) => (
           <ProviderCard key={provider.key} provider={provider} saving={saving === provider.key} onSave={saveProvider} onRefresh={refresh} />
         ))}
-      </div>
-      <PairAssignments overview={overview} onSaved={load} />
+      </div>}
+      {mode !== 'providers' && <PairAssignments overview={overview} onSaved={load} />}
       <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 text-xs text-gray-600">
         Pair direction, manual fallback and directional markup are managed in the Live rates pair editor. Provider keys are sent only over the authenticated admin API and are never returned after saving.
       </div>
@@ -99,7 +101,7 @@ function PairAssignments({ overview, onSaved }: { overview: FxPricingSettingsOve
   if (!pairs.length) return null;
   return (
     <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-      <h3 className="font-semibold text-gray-900">Provider assignment by direction</h3>
+      <h3 className="font-semibold text-gray-900">Live rates by direction</h3>
       <p className="text-xs text-gray-500 mt-1">Choose the provider, manual override, and directional markup independently for every conversion direction.</p>
       <div className="mt-4 divide-y divide-gray-100">
         {pairs.map((pair) => <PairAssignmentRow key={`${String(pair.from_currency)}-${String(pair.to_currency)}`} pair={pair} providers={providers} overview={overview} onSaved={onSaved} />)}

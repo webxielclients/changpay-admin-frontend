@@ -13,9 +13,9 @@ const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display',
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type MainTab = 'overview' | 'swap';
-type SubTab  = 'live-rates' | 'spread' | 'rate-logs' | 'providers';
+type SubTab  = 'live-rates' | 'legacy-rates' | 'spread' | 'rate-logs' | 'providers';
 type SwapCurrency = 'USD' | 'NGN' | 'YUAN';
-type SwapPairFilter = 'all' | 'NGN-YUAN' | 'USD-NGN' | 'NGN-USD' | 'YUAN-NGN';
+type SwapPairFilter = 'all' | 'NGN-YUAN' | 'USD-NGN' | 'NGN-USD' | 'YUAN-NGN' | 'USD-YUAN' | 'YUAN-USD';
 
 interface LatestChange {
   timestamp: string;
@@ -137,6 +137,7 @@ function PairIcon() {
 // ─── Rate Card ────────────────────────────────────────────────────────────────
 interface RateCardProps {
   rate: ConversionRate;
+  readOnly?: boolean;
   overrideEnabled: boolean;
   onToggleOverride: (v: boolean) => void;
   onOpenOverride: () => void;
@@ -146,7 +147,7 @@ interface RateCardProps {
   onEditRate: () => void;
 }
 
-function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride, hasActiveOverride, onRelease, releasingThis, onEditRate }: RateCardProps) {
+function RateCard({ rate, readOnly = false, overrideEnabled, onToggleOverride, onOpenOverride, hasActiveOverride, onRelease, releasingThis, onEditRate }: RateCardProps) {
   const isDerived = Boolean((rate as any).is_derived);
   return (
     <div className="bg-white rounded-xl overflow-hidden">
@@ -167,7 +168,7 @@ function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride, has
               Overridden
             </span>
           )}
-          <button
+          {!readOnly && <button
             onClick={onEditRate}
             title="Edit base rate"
             className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors flex-shrink-0"
@@ -175,7 +176,7 @@ function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride, has
             <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" />
             </svg>
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -208,7 +209,7 @@ function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride, has
       </div>
 
       {/* Manual Override */}
-      <div className="flex items-center justify-between mx-6 mb-6 bg-[#F8F9FA] rounded-xl px-5 py-3.5">
+      {!readOnly && <div className="flex items-center justify-between mx-6 mb-6 bg-[#F8F9FA] rounded-xl px-5 py-3.5">
         <div>
           <p className="text-sm font-semibold text-gray-900">Manual Override</p>
           <p className="text-xs text-gray-400">Override automatic rate updates</p>
@@ -237,7 +238,7 @@ function RateCard({ rate, overrideEnabled, onToggleOverride, onOpenOverride, has
           )}
           <Toggle enabled={overrideEnabled} disabled={isDerived} onChange={onToggleOverride} />
         </div>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -652,7 +653,9 @@ export default function FXEnginePage() {
     } catch { /* noop */ } finally { setReleasingOverride(null); }
   }, [appliedOverrides]);
 
-  useEffect(() => { fetchOverview(); }, [fetchOverview]);
+  useEffect(() => {
+    if (mainTab === 'overview' && subTab === 'legacy-rates') fetchOverview();
+  }, [mainTab, subTab, fetchOverview]);
 
   useEffect(() => {
     if (mainTab === 'overview' && subTab === 'spread') fetchSpreads();
@@ -667,7 +670,8 @@ export default function FXEnginePage() {
   if (!isAuthenticated) return null;
 
   const SUB_TABS: { id: SubTab; label: string }[] = [
-    { id: 'live-rates', label: 'Live rates' },
+    { id: 'live-rates', label: 'Live Rate' },
+    { id: 'legacy-rates', label: 'Legacy Rate (Deprecated)' },
     { id: 'spread',     label: 'Spread' },
     { id: 'rate-logs',  label: 'Rate Logs' },
     { id: 'providers',  label: 'Integrated FX Providers' },
@@ -744,39 +748,37 @@ export default function FXEnginePage() {
           {/* ══════════════════ OVERVIEW ══════════════════ */}
           {mainTab === 'overview' && (
             <>
-              {/* ── Live Rates */}
+              {/* ── New FX Engine live rates */}
               {subTab === 'live-rates' && (
+                <div className="p-8 space-y-6">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <h2 className="text-lg font-bold text-gray-900">Live Rate</h2>
+                        <Image src="/live.png" alt="LIVE" width={64} height={24} className="block" />
+                      </div>
+                      <p className="mt-1 text-sm text-gray-500">Active provider and manual rates used by new wallet conversions.</p>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                    Configure each direction independently. A configured rate does not bypass treasury liquidity or execution approval.
+                  </div>
+                  <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                    <FxProvidersPanel mode="pairs" />
+                  </div>
+                </div>
+              )}
+
+              {/* ── Live Rates */}
+              {subTab === 'legacy-rates' && (
                 <div className="p-8 space-y-6">
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="flex items-center gap-3">
-                        <h2 className="text-lg font-bold text-gray-900 whitespace-nowrap">FX Rates</h2>
-                        <Image src="/live.png" alt="LIVE" width={64} height={24} className="block" />
+                        <h2 className="text-lg font-bold text-gray-900 whitespace-nowrap">Legacy Rates</h2>
+                        <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">Deprecated</span>
                       </div>
-                      <p className="text-sm text-gray-400 whitespace-nowrap mt-1">Last updated: {lastUpdated || '—'}</p>
-                    </div>
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <button
-                        onClick={() => setRateModal({})}
-                        className="flex items-center justify-center transition-colors whitespace-nowrap"
-                        style={{ backgroundColor: '#F8F9FA', color: '#009F51', border: '1.5px solid #009F51', minWidth: 152, height: 56, gap: 8, borderRadius: 200, padding: 12, ...FONT, fontWeight: 600, fontSize: 18, lineHeight: '120%', letterSpacing: '-1%' }}
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                        </svg>
-                        Add Pair
-                      </button>
-                      <button
-                        onClick={fetchOverview}
-                        disabled={isLoading}
-                        className="flex items-center justify-center disabled:opacity-50 transition-colors whitespace-nowrap"
-                        style={{ backgroundColor: '#009F51', color: '#E1F7EB', minWidth: 176, height: 56, gap: 8, borderRadius: 200, padding: 12, ...FONT, fontWeight: 600, fontSize: 20, lineHeight: '120%', letterSpacing: '-1%' }}
-                      >
-                        <svg className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                        </svg>
-                        Refresh Now
-                      </button>
+                      <p className="text-sm text-gray-500 mt-1">Read-only historical rates. New conversions use Live Rate and the FX Engine.</p>
                     </div>
                   </div>
 
@@ -795,6 +797,7 @@ export default function FXEnginePage() {
                           <RateCard
                             key={rate.id ?? idx}
                             rate={rate}
+                            readOnly
                             overrideEnabled={!!overrides[rate.pair]}
                             onToggleOverride={(val) => {
                               setOverrides((prev) => ({ ...prev, [rate.pair]: val }));
@@ -990,7 +993,7 @@ export default function FXEnginePage() {
             </>
           )}
 
-          {mainTab === 'overview' && subTab === 'providers' && <FxProvidersPanel />}
+          {mainTab === 'overview' && subTab === 'providers' && <FxProvidersPanel mode="providers" />}
 
           {/* ══════════════════ SWAP ══════════════════ */}
           {mainTab === 'swap' && (() => {
@@ -1001,6 +1004,8 @@ export default function FXEnginePage() {
               { id: 'USD-NGN', from: 'USD', to: 'NGN' },
               { id: 'NGN-USD', from: 'NGN', to: 'USD' },
               { id: 'YUAN-NGN', from: 'YUAN', to: 'NGN' },
+              { id: 'USD-YUAN', from: 'USD', to: 'YUAN' },
+              { id: 'YUAN-USD', from: 'YUAN', to: 'USD' },
             ];
             return (
               <div className="p-8 space-y-6">

@@ -29,6 +29,10 @@ export default function SettingsPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    setProfile({ first_name: user?.first_name ?? '', last_name: user?.last_name ?? '' });
+  }, [user?.first_name, user?.last_name]);
+
+  useEffect(() => {
     if (!twoFactorEnabled) return;
     void adminSecurityApi.twoFactorStatus().then((response) => setTwoFactorStatus(response.data)).catch(() => undefined);
   }, []);
