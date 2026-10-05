@@ -742,17 +742,17 @@ export const adminSecurityApi = {
   changePassword: (body: { current_password: string; password: string; password_confirmation: string }) =>
     authedRequest<{ data: null }>('/auth/password', { method: 'POST', body: JSON.stringify(body) }),
   twoFactorStatus: () => authedRequest<{ data: AdminTwoFactorStatus }>('/auth/two-factor'),
-  initiateTwoFactor: (method: 'email' | 'totp') => authedRequest<{ data: { method: string; qr_code_url?: string; message?: string } }>('/auth/two-factor/initiate', {
+  initiateTwoFactor: (method: 'email' | 'totp', current_password?: string) => authedRequest<{ data: { method: string; qr_code_url?: string; qr_code_data_uri?: string; secret?: string; otpauth_uri?: string; message?: string } }>('/auth/two-factor/initiate', {
     method: 'POST',
-    body: JSON.stringify({ method }),
+    body: JSON.stringify({ method, ...(current_password ? { current_password } : {}) }),
   }),
   confirmTwoFactor: (method: 'email' | 'totp', code: string) => authedRequest<{ data: AdminTwoFactorStatus }>('/auth/two-factor/confirm', {
     method: 'POST',
     body: JSON.stringify({ method, code }),
   }),
-  disableTwoFactor: (method: 'email' | 'totp') => authedRequest<{ data: AdminTwoFactorStatus }>('/auth/two-factor/disable', {
+  disableTwoFactor: (method: 'email' | 'totp', current_password?: string) => authedRequest<{ data: AdminTwoFactorStatus }>('/auth/two-factor/disable', {
     method: 'POST',
-    body: JSON.stringify({ method }),
+    body: JSON.stringify({ method, ...(current_password ? { current_password } : {}) }),
   }),
 };
 
