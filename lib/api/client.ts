@@ -128,6 +128,12 @@ interface VerifiedUser {
 // ─── Auth API ─────────────────────────────────────────────────────────────────
 
 export const authApi = {
+  me: async () => {
+    const res = await authedRequest<{ status: boolean; message: string; data: User }>('/auth/me');
+    if (!res.status) throw new Error(res.message || 'Unable to load profile');
+    return { user: res.data, message: res.message };
+  },
+
   login: async (credentials: { email: string; password: string }): Promise<
     | {
         token: null;
