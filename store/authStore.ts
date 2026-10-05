@@ -22,7 +22,34 @@ export interface User {
   deleted_at?: string | null;
   changpay_id?: string | null;
   avatar_url?: string | null;
-  permissions?: string[];
+}
+
+type UserPayload = Partial<User> & {
+  firstName?: string | null;
+  lastName?: string | null;
+  avatarUrl?: string | null;
+  emailVerifiedAt?: string | null;
+  roleId?: number | null;
+  isAdmin?: boolean;
+  isActive?: boolean;
+};
+
+/** Keep the persisted store stable when API responses use camelCase resources. */
+export function normalizeUser(payload: UserPayload | null | undefined): User | null {
+  if (!payload || payload.id == null || !payload.email) return null;
+
+  return {
+    ...payload,
+    id: payload.id,
+    email: payload.email,
+    first_name: payload.first_name ?? payload.firstName ?? null,
+    last_name: payload.last_name ?? payload.lastName ?? null,
+    avatar_url: payload.avatar_url ?? payload.avatarUrl ?? null,
+    email_verified_at: payload.email_verified_at ?? payload.emailVerifiedAt ?? null,
+    role_id: payload.role_id ?? payload.roleId ?? null,
+    is_admin: payload.is_admin ?? payload.isAdmin,
+    is_active: payload.is_active ?? payload.isActive,
+  };
 }
 
 interface AuthState {
@@ -58,20 +85,24 @@ export const useAuthStore = create<AuthStore>()(
 
       setHasHydrated: (val) => set({ _hasHydrated: val }),
 
-      setUser: (user) => set({ user, isAuthenticated: !!user }),
+      setUser: (user) => {
+        const normalized = normalizeUser(user);
+        set({ user: normalized, isAuthenticated: !!normalized });
+      },
       setToken: (token) => set({ token }),
       setAvatar: (url) => set((state) => ({ user: state.user ? { ...state.user, avatar_url: url } : state.user })),
       setLoading: (isLoading) => set({ isLoading }),
       setError: (error) => set({ error, isLoading: false }),
 
       login: (user, token) => {
+        const normalized = normalizeUser(user);
         if (typeof window !== 'undefined') {
           localStorage.setItem('token', token);
         }
         set({
-          user,
+          user: normalized,
           token,
-          isAuthenticated: true,
+          isAuthenticated: !!normalized && !!token,
           isLoading: false,
           error: null,
         });
@@ -114,7 +145,7 @@ export const useAuthStore = create<AuthStore>()(
         const token = p.token ?? null;
         return {
           ...current,
-          user: p.user ?? null,
+          user: normalizeUser(p.user as UserPayload | null),
           token,
           isAuthenticated: !!token,
         };
