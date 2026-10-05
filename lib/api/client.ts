@@ -599,6 +599,7 @@ export interface FxProviderSetting {
   enabled: boolean;
   comparison_only?: boolean;
   max_age_seconds: number;
+  max_change_percent?: number | string;
   parameters?: Record<string, string | number | boolean> | null;
   credentials_configured?: boolean;
   failure_code?: string | null;
@@ -683,6 +684,12 @@ export const fxApi = {
     authedRequest<{ data: FxPricingSettingsOverview }>('/fx/pricing/settings/pair', {
       method: 'PUT',
       body: JSON.stringify({ ...body, kind: 'pair' }),
+    }),
+
+  previewPair: (body: Record<string, unknown>) =>
+    authedRequest<{ data: { safe: boolean; pair: Record<string, unknown>; edges: Record<string, unknown>; expires_at: string } }>('/fx/pricing/settings/pair/preview', {
+      method: 'POST',
+      body: JSON.stringify(body),
     }),
 
   refreshProvider: (provider: string) =>

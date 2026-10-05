@@ -44,6 +44,7 @@ export default function FxProvidersPanel({ mode = 'all' }: { mode?: FxPanelMode 
         key: provider.key,
         enabled: provider.enabled,
         max_age_seconds: provider.max_age_seconds,
+        max_change_percent: provider.max_change_percent ?? 25,
         parameters: provider.parameters ?? {},
         revision: overview.revision,
         reason: 'Updated from FX Engine provider settings',
@@ -123,31 +124,56 @@ function PairAssignmentRow({
 }) {
   const value = (key: string) => String(pair[key] ?? '');
   const [provider, setProvider] = useState(value('provider'));
+  const [role, setRole] = useState(value('rate_role') || 'sell');
   const [rateSource, setRateSource] = useState(value('rate_source') || 'provider');
   const [manualRate, setManualRate] = useState(value('manual_rate'));
   const [markup, setMarkup] = useState(value('markup_percent') || '0');
   const [operation, setOperation] = useState(value('markup_operation') || 'none');
+  const [minimumSpread, setMinimumSpread] = useState(value('minimum_spread_percent') || '0');
+  const [feePercent, setFeePercent] = useState(value('fee_percent') || '0');
   const [enabled, setEnabled] = useState(Boolean(pair.enabled ?? true));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
   const pairKey = `${value('from_currency')}-${value('to_currency')}`;
+
+  const payload = () => ({
+    from_currency: value('from_currency').toUpperCase(),
+    to_currency: value('to_currency').toUpperCase(),
+    provider,
+    rate_role: role,
+    rate_source: rateSource,
+    manual_rate: rateSource === 'manual' ? manualRate : null,
+    markup_percent: rateSource === 'manual' ? '0' : markup,
+    markup_operation: rateSource === 'manual' ? 'none' : operation,
+    minimum_spread_percent: minimumSpread,
+    fee_percent: feePercent,
+    enabled,
+  });
+
+  const previewPair = async () => {
+    try {
+      setSaving(true);
+      setError(null);
+      const response = await fxApi.previewPair({ ...payload(), reason: `Preview ${pairKey} settings` });
+      const edge = (response.data.edges as Record<string, Record<string, { rate?: unknown }>>)[value('from_currency')]?.[value('to_currency')];
+      const product = String(edge?.rate ?? '');
+      setPreview(response.data.safe ? `Configuration is safe. Effective rate: ${product}` : 'Configuration is not safe.');
+    } catch (e) {
+      setPreview(null);
+      setError(e instanceof Error ? e.message : 'Unable to preview pair.');
+    } finally { setSaving(false); }
+  };
 
   const save = async () => {
     try {
       setSaving(true);
       setError(null);
-      await fxApi.updatePair({
-        from_currency: value('from_currency').toUpperCase(),
-        to_currency: value('to_currency').toUpperCase(),
-        provider,
-        rate_source: rateSource,
-        manual_rate: rateSource === 'manual' ? manualRate : null,
-        markup_percent: rateSource === 'manual' ? '0' : markup,
-        markup_operation: rateSource === 'manual' ? 'none' : operation,
-        enabled,
-        revision: overview.revision,
+      await fxApi.previewPair({ ...payload(), reason: `Preview ${pairKey} settings` });
+      await fxApi.updatePair({ ...payload(), revision: overview.revision,
         reason: rateSource === 'manual' ? `Manual ${pairKey} rate override updated from FX Engine` : `FX ${pairKey} provider settings updated from FX Engine`,
       });
+      setPreview('Saved after arbitrage and spread validation.');
       await onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to update pair.');
@@ -165,6 +191,12 @@ function PairAssignmentRow({
       <label className="text-xs text-gray-600">Provider
         <select value={provider} onChange={(e) => setProvider(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
           {providers.map((item) => <option key={item.key} value={item.key}>{PROVIDER_LABELS[item.key] ?? item.key}</option>)}
+        </select>
+      </label>
+      <label className="text-xs text-gray-600">ChangPay side
+        <select value={role} onChange={(e) => setRole(e.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
+          <option value="buy">Buy base currency</option>
+          <option value="sell">Sell base currency</option>
         </select>
       </label>
       <label className="text-xs text-gray-600">Rate source
@@ -185,9 +217,19 @@ function PairAssignmentRow({
           <option value="subtract">Subtract from provider rate</option>
         </select>
       </label>}
+      <label className="text-xs text-gray-600">Minimum spread (%)
+        <input value={minimumSpread} onChange={(e) => setMinimumSpread(e.target.value)} inputMode="decimal" className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+      </label>
+      <label className="text-xs text-gray-600">Fee used in cycle check (%)
+        <input value={feePercent} onChange={(e) => setFeePercent(e.target.value)} inputMode="decimal" className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+      </label>
     </div>
     {error && <p className="text-xs text-red-600">{error}</p>}
-    <button type="button" disabled={saving} onClick={() => void save()} className="rounded-lg bg-[#009F51] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50">{saving ? 'Saving…' : 'Save direction settings'}</button>
+    {preview && <p className="text-xs text-blue-700">{preview}</p>}
+    <div className="flex flex-wrap gap-2">
+      <button type="button" disabled={saving} onClick={() => void previewPair()} className="rounded-lg border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-700 disabled:opacity-50">Preview safety</button>
+      <button type="button" disabled={saving} onClick={() => void save()} className="rounded-lg bg-[#009F51] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50">{saving ? 'Saving…' : 'Save direction settings'}</button>
+    </div>
   </div>;
 }
 
@@ -204,6 +246,7 @@ function ProviderCard({
 }) {
   const [enabled, setEnabled] = useState(provider.enabled);
   const [maxAge, setMaxAge] = useState(String(provider.max_age_seconds));
+  const [maxChange, setMaxChange] = useState(String(provider.max_change_percent ?? 25));
   const [apiKey, setApiKey] = useState('');
   const [parameters, setParameters] = useState(() => JSON.stringify(provider.parameters ?? {}, null, 2));
 
@@ -225,11 +268,13 @@ function ProviderCard({
         <textarea value={parameters} onChange={(e) => setParameters(e.target.value)} rows={4} placeholder={'{"base_currency":"USD"}'} className="w-full rounded-lg border border-gray-200 px-3 py-2 font-mono text-xs" />
         <label className="block text-xs font-medium text-gray-700">Maximum age (seconds)</label>
         <input value={maxAge} onChange={(e) => setMaxAge(e.target.value)} inputMode="numeric" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
+        <label className="block text-xs font-medium text-gray-700">Maximum provider movement (%)</label>
+        <input value={maxChange} onChange={(e) => setMaxChange(e.target.value)} inputMode="decimal" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" />
         <div className="flex gap-2 pt-2">
           <button type="button" disabled={saving} onClick={() => {
             try {
               const parsed = JSON.parse(parameters || '{}');
-              void onSave(provider, { enabled, max_age_seconds: Number(maxAge), parameters: parsed, ...(apiKey ? { api_key: apiKey } : {}) });
+              void onSave(provider, { enabled, max_age_seconds: Number(maxAge), max_change_percent: Number(maxChange), parameters: parsed, ...(apiKey ? { api_key: apiKey } : {}) });
             } catch {
               window.alert('Provider parameters must be valid JSON.');
             }
