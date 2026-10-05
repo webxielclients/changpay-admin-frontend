@@ -22,6 +22,7 @@ export interface User {
   deleted_at?: string | null;
   changpay_id?: string | null;
   avatar_url?: string | null;
+  permissions?: string[];
 }
 
 type UserPayload = Partial<User> & {

@@ -149,9 +149,20 @@ interface VerifiedUser {
 
 export const authApi = {
   me: async () => {
-    const res = await authedRequest<{ status: boolean; message: string; data: User }>('/auth/me');
+    const res = await authedRequest<{ status: boolean; message: string; data: { id: number; firstName?: string; lastName?: string; email: string; avatarUrl?: string | null; isActive?: boolean; permissions?: string[]; role?: { permissions?: Array<{ code?: string }> } } }>('/auth/me');
     if (!res.status) throw new Error(res.message || 'Unable to load profile');
-    return { user: res.data, message: res.message };
+    return {
+      user: {
+        id: res.data.id,
+        email: res.data.email,
+        first_name: res.data.firstName ?? '',
+        last_name: res.data.lastName ?? '',
+        avatar_url: res.data.avatarUrl ?? null,
+        is_active: res.data.isActive ?? true,
+        permissions: res.data.permissions ?? res.data.role?.permissions?.map((permission) => permission.code ?? '').filter(Boolean) ?? [],
+      },
+      message: res.message,
+    };
   },
 
   login: async (credentials: { email: string; password: string }): Promise<
