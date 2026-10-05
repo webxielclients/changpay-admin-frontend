@@ -76,6 +76,23 @@ function authedRequest<T>(endpoint: string, options: RequestInit = {}): Promise<
   return request<T>(endpoint, options, token);
 }
 
+async function authedMultipartRequest<T>(endpoint: string, body: FormData): Promise<T> {
+  const storeToken = useAuthStore.getState().token;
+  const localToken = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const token = storeToken ?? localToken;
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${BASE_URL}${endpoint}`, {
+    method: 'POST',
+    headers,
+    body,
+  });
+  const payload = await response.json().catch(() => null) as (T & { message?: string }) | null;
+  if (!response.ok) throw new Error(payload?.message || `Request failed (${response.status})`);
+  return payload as T;
+}
+
 // ─── Auth types ───────────────────────────────────────────────────────────────
 
 export type TwoFactorMethod = 'email' | 'totp';
@@ -712,6 +729,11 @@ export interface AdminTwoFactorStatus {
 }
 
 export const adminSecurityApi = {
+  uploadAvatar: (file: File) => {
+    const body = new FormData();
+    body.append('avatar', file);
+    return authedMultipartRequest<{ data: { avatar_url?: string | null; avatarUrl?: string | null } }>('/auth/avatar', body);
+  },
   updateProfile: (body: { first_name: string; last_name: string }) =>
     authedRequest<{ data: { firstName: string; lastName: string; email: string; avatarUrl?: string | null } }>('/auth/profile', {
       method: 'PUT',
