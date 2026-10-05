@@ -2,7 +2,7 @@
 
 import { useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore, useTempAuthStore } from '@/store/authStore';
+import { normalizeUser, useAuthStore, useTempAuthStore } from '@/store/authStore';
 import { authApi } from '@/lib/api/client';
 import { AUTH_ROUTES } from '@/constants/auth';
 import { getErrorMessage } from '@/lib/utils';
@@ -30,7 +30,6 @@ export function useAuth() {
           return { requiresTwoFactor: true as const, challengeToken: result.challengeToken, methods: result.methods };
         }
         const { token, user } = result;
-        if (!token) throw new Error('Login response did not include a token');
         // Login returns only a token — store minimal user from credentials.
         // Replace with a /auth/me call if that endpoint becomes available.
         // Persist token to plain localStorage key as reliable fallback
@@ -38,19 +37,9 @@ export function useAuth() {
           localStorage.setItem('token', token);
         }
         // Use the real user data returned by the login response
-        login(
-          {
-            id: user.id,
-            email: user.email,
-            is_admin: true,
-            first_name: (user as { first_name?: string; firstName?: string }).first_name ?? (user as { firstName?: string }).firstName ?? '',
-            last_name: (user as { last_name?: string; lastName?: string }).last_name ?? (user as { lastName?: string }).lastName ?? '',
-            email_verified_at: user.email_verified_at,
-            role_id: user.role_id,
-            is_active: user.is_active,
-          },
-          token
-        );
+        const normalized = normalizeUser(user);
+        if (!normalized) throw new Error('Login response did not include a valid admin profile.');
+        login(normalized, token);
         router.push(AUTH_ROUTES.DASHBOARD);
         return { requiresTwoFactor: false as const };
       } catch (error) {
@@ -73,9 +62,11 @@ export function useAuth() {
           return { complete: false as const, remainingMethods: result.remainingMethods };
         }
         const { token, user } = result;
-        login({ id: user.id, email: user.email, is_admin: true, first_name: (user as { first_name?: string; firstName?: string }).first_name ?? (user as { firstName?: string }).firstName ?? '', last_name: (user as { last_name?: string; lastName?: string }).last_name ?? (user as { lastName?: string }).lastName ?? '', email_verified_at: user.email_verified_at, role_id: user.role_id, is_active: user.is_active }, token);
+        const normalized = normalizeUser(user);
+        if (!normalized) throw new Error('Two-factor response did not include a valid admin profile.');
+        login(normalized, token);
         router.push(AUTH_ROUTES.DASHBOARD);
-        return { complete: true as const, remainingMethods: [] as Array<'email' | 'totp'> };
+        return { complete: true as const };
       } catch (error) {
         setError(getErrorMessage(error));
         throw error;
@@ -165,16 +156,9 @@ export function useAuth() {
         const { user, message } = await authApi.googleAuth(idToken);
         // Google auth returns a user object but no separate token in the docs —
         // treat message as confirmation and redirect. Update if token is added.
-        login(
-          {
-            id: user.id,
-            email: user.email,
-            is_admin: true,
-            first_name: user.first_name,
-            last_name: user.last_name,
-          },
-          '' // replace with token if the endpoint returns one
-        );
+        const normalized = normalizeUser(user);
+        if (!normalized) throw new Error('Google login response did not include a valid admin profile.');
+        login(normalized, ''); // replace with token if the endpoint returns one
         router.push(AUTH_ROUTES.DASHBOARD);
         return { message };
       } catch (error) {

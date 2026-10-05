@@ -117,6 +117,9 @@ interface LoginApiResponse {
     requires_two_factor?: boolean;
     challenge_token?: string;
     methods?: TwoFactorMethod[];
+    complete?: boolean;
+    remaining_methods?: TwoFactorMethod[];
+    remainingMethods?: TwoFactorMethod[];
     admin?: VerifiedUser;
   };
 }
@@ -198,8 +201,13 @@ export const authApi = {
 
   verifyTwoFactorLogin: async (data: { challenge_token: string; method: 'email' | 'totp'; code: string }) => {
     const res = await request<LoginApiResponse>('/auth/two-factor/verify', { method: 'POST', body: JSON.stringify(data) });
-    if (!res.status || !res.data.token) throw new Error(res.message || 'Two-factor verification failed');
-    return { token: res.data.token, user: res.data, message: res.message };
+    if (!res.status) throw new Error(res.message || 'Two-factor verification failed');
+    const remainingMethods = res.data.remaining_methods ?? res.data.remainingMethods ?? [];
+    const complete = res.data.complete ?? Boolean(res.data.token);
+    if (!complete || !res.data.token) {
+      return { complete: false as const, token: null, user: null, message: res.message, remainingMethods };
+    }
+    return { complete: true as const, token: res.data.token, user: res.data, message: res.message, remainingMethods: [] };
   },
 
   register: async (data: { email: string; password: string; password_confirmation: string }) => {
