@@ -603,7 +603,7 @@ function BanksPayoutsPageInner() {
                           const acctNum  = tx.account?.number ?? '—';
                           const acctName = tx.account?.name;
                           const ts = tx.timestamp ? new Date(tx.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
-                          const currSymbol = tx.currency === 'NGN' ? '₦' : tx.currency === 'YAN' ? '¥' : '$';
+                          const currSymbol = tx.currency === 'NGN' ? '₦' : tx.currency === 'YUAN' ? '¥' : '$';
                           return (
                             <tr key={tx.id} className="hover:bg-gray-50/50 transition-colors">
                               <td className="px-5 py-4">

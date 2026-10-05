@@ -243,7 +243,7 @@ function toTitleCase(name: string): string {
 }
 
 function fmtTxAmount(amount: number, currency: string): string {
-  const symbol = currency === 'USD' ? '$' : currency === 'NGN' ? '₦' : currency === 'YAN' ? '¥' : '';
+  const symbol = currency === 'USD' ? '$' : currency === 'NGN' ? '₦' : currency === 'YUAN' ? '¥' : '';
   const n = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(amount);
   return symbol ? `${symbol}${n}` : `${n} ${currency}`;
 }
@@ -287,7 +287,6 @@ const PENDING_ACTIONS = [
 export default function DashboardHome() {
   const router = useRouter();
   const { isAuthenticated, user } = useAuthStore();
-  const canViewDashboard = !user?.permissions || user.permissions.includes('dashboard.view');
 
   const [overview,        setOverview]        = useState<DashboardOverviewData | null>(null);
   const [chartData,       setChartData]       = useState<ChartData | null>(null);
@@ -320,9 +319,9 @@ export default function DashboardHome() {
   }, []);
 
   useEffect(() => {
-    if (!isAuthenticated || !canViewDashboard) return;
+    if (!isAuthenticated) return;
     fetchOverview(); fetchChart(chartInterval); fetchTransactions();
-  }, [isAuthenticated, canViewDashboard]);
+  }, [isAuthenticated]);
 
   /* close filter dropdown on outside click */
   useEffect(() => {
@@ -334,9 +333,6 @@ export default function DashboardHome() {
   }, []);
 
   if (!isAuthenticated) return null;
-  if (!canViewDashboard) {
-    return <div className="flex h-screen bg-white"><Sidebar /><main className="flex-1 flex items-center justify-center"><div className="text-center"><h1 className="text-3xl font-semibold text-[#012D32]">Welcome, {user?.first_name ?? user?.email?.split('@')[0] ?? 'Admin'}</h1><p className="mt-2 text-gray-500">Your account is active. No dashboard access has been assigned.</p></div></main></div>;
-  }
 
   const selectedLabel = INTERVAL_OPTIONS.find(o => o.key === chartInterval)?.label ?? 'This Month';
 
@@ -430,10 +426,10 @@ export default function DashboardHome() {
               subTrendValue={fmtPct(overview?.users?.change_percent) || undefined}
               loading={loadingOverview}
               icon={<Image src="/icon(2).svg" alt="Users" width={34} height={34} />} />
-            <StatCard label="YUAN Wallet Balance" value={fmtBalance(overview?.by_currency?.YAN?.total_balance, '¥')}
-              subLabel={`Last month: ${fmtBalance(overview?.by_currency?.YAN?.last_period_balance, '¥')}`}
-              subTrend={overview?.by_currency?.YAN?.change_direction}
-              subTrendValue={fmtPct(overview?.by_currency?.YAN?.change_percent) || undefined}
+            <StatCard label="YUAN Wallet Balance" value={fmtBalance(overview?.by_currency?.YUAN?.total_balance ?? 0, '¥')}
+              subLabel={`Last month: ${fmtBalance(overview?.by_currency?.YUAN?.last_period_balance ?? 0, '¥')}`}
+              subTrend={overview?.by_currency?.YUAN?.change_direction}
+              subTrendValue={fmtPct(overview?.by_currency?.YUAN?.change_percent) || undefined}
               loading={loadingOverview}
               icon={<Image src="/china.svg" alt="YUAN" width={24} height={24} />} />
             <StatCard label="USD Wallet Balance" value={fmtBalance(overview?.by_currency?.USD?.total_balance, '$')}
@@ -498,9 +494,9 @@ export default function DashboardHome() {
             <div className="bg-white rounded-2xl border border-gray-100 px-5 h-[100px] flex flex-col justify-center">
               <p className="text-sm font-semibold mb-2" style={{ color: '#1A1D1F' }}>FX exposure summary</p>
               <div className="flex items-center gap-4">
-                {(['NGN','USD','YAN'] as const).map(cur => {
+                {(['NGN','USD','YUAN'] as const).map(cur => {
                   const val = overview?.fx_exposure_summary?.[cur];
-                  const label = cur === 'YAN' ? 'YUAN' : cur;
+                  const label = cur === 'YUAN' ? 'YUAN' : cur;
                   return (
                     <span key={cur} className="text-xs" style={{ color: '#6A7377' }}>
                       <span className="font-medium">{label}:</span>{' '}

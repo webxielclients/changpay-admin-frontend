@@ -9,7 +9,7 @@ import DashboardHeader from '@/components/DashboardHeader';
 import Image from 'next/image';
 
 type MainTab       = 'overview' | 'currency-wallets' | 'ledger' | 'topup' | 'reconciliation';
-type CurrencyType  = 'USD' | 'NGN' | 'YAN';
+type CurrencyType  = 'USD' | 'NGN' | 'YUAN';
 type LedgerAction  = 'all' | 'debit' | 'credit' | 'hold' | 'release';
 type TopupCurrency = 'all' | 'USD' | 'NGN';
 
@@ -651,10 +651,10 @@ export default function WalletManagementPage() {
 
               {/* Currency cards */}
               <div className="grid grid-cols-3 items-stretch" style={{ gap: '12.02px' }}>
-                {(['USD', 'NGN', 'YAN'] as CurrencyType[]).map((cur) => {
+                {(['USD', 'NGN', 'YUAN'] as CurrencyType[]).map((cur) => {
                   const curData = stats?.by_currency?.[cur];
-                  const labels: Record<CurrencyType, string>  = { USD: 'USD Wallets', NGN: 'NGN Wallets', YAN: 'YUAN Wallet Balance' };
-                  const links:  Record<CurrencyType, string>  = { USD: 'View All USD Wallets', NGN: 'View All NGN Wallets', YAN: 'View All YUAN Wallets' };
+                  const labels: Record<CurrencyType, string>  = { USD: 'USD Wallets', NGN: 'NGN Wallets', YUAN: 'YUAN Wallet Balance' };
+                  const links:  Record<CurrencyType, string>  = { USD: 'View All USD Wallets', NGN: 'View All NGN Wallets', YUAN: 'View All YUAN Wallets' };
                   return (
                     <div key={cur} className="flex flex-col bg-[#F8F9FA]" style={{ borderRadius: '18.03px', padding: '18.03px', minHeight: 112 }}>
                       <p className="text-xs text-gray-500 mb-2">{labels[cur]}</p>
@@ -722,7 +722,7 @@ export default function WalletManagementPage() {
             <div className="p-8 space-y-5">
                 <div className="space-y-4">
                   <div className="grid grid-cols-3 gap-3 w-full">
-                    {(['USD', 'NGN', 'YAN'] as CurrencyType[]).map((cur) => (
+                    {(['USD', 'NGN', 'YUAN'] as CurrencyType[]).map((cur) => (
                       <button
                         key={cur}
                         onClick={() => handleCurrencyChange(cur)}
@@ -731,7 +731,7 @@ export default function WalletManagementPage() {
                           ? { backgroundColor: '#009F51', color: '#E1F7EB', height: 48 }
                           : { backgroundColor: '#F8F9FA', color: '#374151', height: 48 }}
                       >
-                        {cur === 'YAN' ? 'YUAN Wallet' : `${cur} Wallet`}
+                        {cur === 'YUAN' ? 'YUAN Wallet' : `${cur} Wallet`}
                       </button>
                     ))}
                   </div>

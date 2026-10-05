@@ -154,7 +154,7 @@ function exportUsersCSV(users: AdminUserRecord[]) {
     u.emailVerified ? 'Yes' : 'No',
     u.balances?.USD ?? '',
     u.balances?.NGN ?? '',
-    u.balances?.YAN ?? '',
+    u.balances?.YUAN ?? '',
     u.createdAt ?? u.created_at ?? '',
     u.lastLoginAt ?? '',
   ]);
@@ -335,7 +335,7 @@ export default function UsersPage() {
                       {/* Balances */}
                       <td className="px-4 py-3.5 whitespace-nowrap"><Bal value={user.balances?.USD} flag="🇺🇸" symbol="$"/></td>
                       <td className="px-4 py-3.5 whitespace-nowrap"><Bal value={user.balances?.NGN} flag="🇳🇬" symbol="₦"/></td>
-                      <td className="px-4 py-3.5 whitespace-nowrap"><Bal value={user.balances?.YAN} flag="🇨🇳" symbol="¥"/></td>
+                      <td className="px-4 py-3.5 whitespace-nowrap"><Bal value={user.balances?.YUAN} flag="🇨🇳" symbol="¥"/></td>
                       {/* Last Login */}
                       <td className="px-4 py-3.5 whitespace-nowrap">
                         {(user.lastLoginAt ?? user.last_login_at)

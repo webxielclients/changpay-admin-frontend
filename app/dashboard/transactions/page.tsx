@@ -40,7 +40,7 @@ function toTitleCase(name: string): string {
 }
 function currencySymbol(c?: string) {
   const code = (c ?? '').toUpperCase();
-  if (code === 'YAN' || code === 'CNY' || code === 'YUAN') return '¥';
+  if (code === 'YUAN' || code === 'CNY' || code === 'YUAN') return '¥';
   if (code === 'USD') return '$';
   if (code === 'NGN') return '₦';
   return code ? `${code} ` : '';

@@ -59,10 +59,10 @@ function fmtAmount(v: string | number | undefined | null, symbol = '') {
 }
 
 /* ── Wallet meta ── */
-const WALLET_META: Record<string, { label: string; symbol: string; flag: string; currency: 'USD' | 'NGN' | 'YAN' }> = {
+const WALLET_META: Record<string, { label: string; symbol: string; flag: string; currency: 'USD' | 'NGN' | 'YUAN' }> = {
   usd:  { label: 'USD',  symbol: '$',  flag: '🇺🇸', currency: 'USD' },
   ngn:  { label: 'NGN',  symbol: '₦',  flag: '🇳🇬', currency: 'NGN' },
-  yuan: { label: 'YUAN', symbol: '¥',  flag: '🇨🇳', currency: 'YAN' },
+  yuan: { label: 'YUAN', symbol: '¥',  flag: '🇨🇳', currency: 'YUAN' },
 };
 
 /* ── Status Badge — Figma outlined ── */
