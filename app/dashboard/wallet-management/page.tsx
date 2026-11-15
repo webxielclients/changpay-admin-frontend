@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/store/authStore';
-import { walletApi } from '@/lib/api/client';
-import type { WalletStats, WalletRecord, CurrencyWalletData, ReconciliationStatus, TopupTransaction, LedgerEntry } from '@/lib/api/client';
+import { walletApi, transactionsApi } from '@/lib/api/client';
+import type { WalletStats, WalletRecord, CurrencyWalletData, ReconciliationStatus, TopupTransaction, LedgerEntry, Transaction } from '@/lib/api/client';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
 import Image from 'next/image';
 
 type MainTab       = 'overview' | 'currency-wallets' | 'ledger' | 'topup' | 'reconciliation';
+type CurrencyWalletView = 'wallets' | 'transfers';
 type CurrencyType  = 'USD' | 'NGN' | 'YUAN';
 type LedgerAction  = 'all' | 'debit' | 'credit' | 'hold' | 'release';
 type TopupCurrency = 'all' | 'USD' | 'NGN';
@@ -305,8 +306,9 @@ function Pagination({ currentPage, totalPages, onChange, loading, from, to, tota
 
 
 // ─── Wallet detail modal ───────────────────────────────────────────────────────
-function WalletDetailModal({ wallet, onClose, onToggleLock, toggling }: { wallet: WalletRecord; onClose: () => void; onToggleLock: (wallet: WalletRecord) => void; toggling: boolean }) {
+function WalletDetailModal({ wallet, onClose, onToggleLock, toggling }: { wallet: WalletRecord; onClose: () => void; onToggleLock: (wallet: WalletRecord, note?: string) => void; toggling: boolean }) {
   const [copied, setCopied] = useState(false);
+  const [note, setNote] = useState(wallet.lockNote ?? '');
   const userName = wallet.user ? [wallet.user.firstName, wallet.user.lastName].filter(Boolean).join(' ') : '—';
   const lastActivity = wallet.lastActivityAt
     ? new Date(wallet.lastActivityAt).toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '')
@@ -352,14 +354,16 @@ function WalletDetailModal({ wallet, onClose, onToggleLock, toggling }: { wallet
           {row('Balance', `${currencySymbol(wallet.currency)}${Number(wallet.balance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}
           {row('Available Balance', `${currencySymbol(wallet.currency)}${Number(wallet.availableBalance).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}
           {row('Status', <StatusBadge isLocked={wallet.isLocked} isActive={wallet.isActive} />)}
+          {wallet.isLocked && row('Freeze note', wallet.lockNote || 'No note provided')}
           {row('Verified', wallet.isVerified ? 'Yes' : 'No')}
           {row('Date Created', dateCreated)}
           {row('Last Activity', lastActivity)}
         </div>
 
         <div className="px-6 pb-6">
+          {!wallet.isLocked && <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Explain why this wallet is being frozen" className="w-full mb-3 rounded-xl border border-gray-200 p-3 text-sm" rows={3} />}
           <button
-            onClick={() => onToggleLock(wallet)}
+            onClick={() => onToggleLock(wallet, note)}
             disabled={toggling}
             className="w-full py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
             style={{ backgroundColor: wallet.isLocked ? '#009F51' : '#FF756B' }}>
@@ -376,6 +380,7 @@ export default function WalletManagementPage() {
 
   const [mainTab,          setMainTab]          = useState<MainTab>('overview');
   const [selectedCurrency, setSelectedCurrency]  = useState<CurrencyType>('USD');
+  const [currencyWalletView, setCurrencyWalletView] = useState<CurrencyWalletView>('wallets');
   const [walletSearch,     setWalletSearch]      = useState('');
   const [ledgerSearch,     setLedgerSearch]      = useState('');
   const [ledgerAction,     setLedgerAction]      = useState<LedgerAction>('all');
@@ -389,6 +394,10 @@ export default function WalletManagementPage() {
   const [wallets,        setWallets]        = useState<WalletRecord[]>([]);
   const [recentActivity, setRecentActivity] = useState<RecentActivityItem[]>([]);
   const [togglingId,          setTogglingId]          = useState<string | null>(null);
+  const [transfers,           setTransfers]           = useState<Transaction[]>([]);
+  const [transferPage,        setTransferPage]        = useState(1);
+  const [transferMeta,        setTransferMeta]        = useState<{ last_page: number; from: number | null; to: number | null; total: number } | null>(null);
+  const [loadingTransfers,    setLoadingTransfers]    = useState(false);
   const [viewingWallet,       setViewingWallet]       = useState<WalletRecord | null>(null);
   const [reconciliation,      setReconciliation]      = useState<ReconciliationStatus | null>(null);
   const [loadingStats,        setLoadingStats]        = useState(true);
@@ -492,15 +501,27 @@ export default function WalletManagementPage() {
     } catch { /* silent */ } finally { setLoadingLedger(false); }
   }, []);
 
+  const fetchTransfers = useCallback(async (page = 1) => {
+    try {
+      setLoadingTransfers(true);
+      const res = await transactionsApi.getAll({ type: 'transfer', currency: selectedCurrency, page, per_page: 15 });
+      setTransfers(res.data?.data ?? []);
+      if (res.data?.meta) setTransferMeta(res.data.meta);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load in-app transfers');
+    } finally { setLoadingTransfers(false); }
+  }, [selectedCurrency]);
+
   useEffect(() => { fetchStats(); }, [fetchStats]);
 
   useEffect(() => {
     if (mainTab === 'currency-wallets') fetchCurrencyWallets(selectedCurrency, currentPage, walletSearch);
     if (mainTab === 'topup') fetchTopups(topupSearch, topupFilter, topupCurrency, topupPage);
     if (mainTab === 'ledger') fetchLedger(ledgerSearch, ledgerAction, ledgerPage);
+    if (mainTab === 'currency-wallets' && currencyWalletView === 'transfers') fetchTransfers(transferPage);
     if (mainTab === 'reconciliation') fetchReconciliation();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mainTab, selectedCurrency, currentPage, topupSearch, topupFilter, topupCurrency, topupPage, ledgerSearch, ledgerAction, ledgerPage]);
+  }, [mainTab, currencyWalletView, selectedCurrency, currentPage, topupSearch, topupFilter, topupCurrency, topupPage, ledgerSearch, ledgerAction, ledgerPage, transferPage, fetchTransfers]);
 
   const handleWalletSearch = (val: string) => {
     setWalletSearch(val);
@@ -525,10 +546,14 @@ export default function WalletManagementPage() {
     setWallets([]);
   };
 
-  const handleToggleLock = async (wallet: WalletRecord) => {
+  const handleToggleLock = async (wallet: WalletRecord, note?: string) => {
     try {
       setTogglingId(wallet.id);
-      const res = await walletApi.toggleLock(wallet.id);
+      if (!wallet.isLocked && !note?.trim()) {
+        setError('A freeze note is required.');
+        return;
+      }
+      const res = await walletApi.updateStatus(wallet.id, wallet.isLocked ? 'active' : 'frozen', note);
       if (res.status) {
         setWallets((prev) => prev.map((w) => w.id === wallet.id ? res.data : w));
         setViewingWallet((prev) => prev && prev.id === wallet.id ? res.data : prev);
@@ -717,10 +742,35 @@ export default function WalletManagementPage() {
             </div>
           )}
 
+          {mainTab === 'currency-wallets' && currencyWalletView === 'transfers' && (
+            <div className="p-8 space-y-5">
+              <div className="flex gap-2 border-b border-gray-100 pb-3">
+                <button onClick={() => setCurrencyWalletView('wallets')} className="rounded-full px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50">Currency Wallets</button>
+                <button onClick={() => setCurrencyWalletView('transfers')} className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">In-App Transfers</button>
+              </div>
+              <div className="flex items-center justify-between">
+                <div><h2 className="text-lg font-semibold text-gray-900">In-App Transfers</h2><p className="text-sm text-gray-500">Review transfers across the selected currency wallet.</p></div>
+                <select value={selectedCurrency} onChange={(e) => { setSelectedCurrency(e.target.value as CurrencyType); setTransferPage(1); }} className="rounded-full border border-gray-200 px-4 py-2 text-sm">
+                  <option value="NGN">NGN</option><option value="USD">USD</option><option value="YUAN">YUAN</option>
+                </select>
+              </div>
+              <div className="overflow-x-auto rounded-xl border border-gray-100">
+                <table className="w-full text-left"><thead className="bg-gray-50 text-xs uppercase text-gray-500"><tr><th className="px-4 py-3">Reference</th><th className="px-4 py-3">Sender</th><th className="px-4 py-3">Destination</th><th className="px-4 py-3">Amount</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr></thead>
+                  <tbody>{loadingTransfers ? <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">Loading transfers…</td></tr> : transfers.filter((tx) => tx.direction !== 'credit').map((tx) => <tr key={String(tx.publicId ?? tx.id)} className="border-t border-gray-100 text-sm"><td className="px-4 py-3 font-mono">{tx.reference}</td><td className="px-4 py-3">{tx.user ? `${tx.user.firstName} ${tx.user.lastName}` : '—'}</td><td className="px-4 py-3">{tx.destination?.name ?? tx.destination?.changpayId ?? '—'}</td><td className="px-4 py-3">{tx.currency} {tx.amount}</td><td className="px-4 py-3"><TxBadge status={tx.holdStatus === 'active' ? 'On hold' : tx.status === 'pending' ? 'Processing' : tx.status.charAt(0).toUpperCase() + tx.status.slice(1)} /></td><td className="px-4 py-3"><div className="flex gap-2">{tx.holdStatus === 'active' ? <><button onClick={async () => { const resolution = window.prompt('Release reason:'); if (!resolution) return; try { await transactionsApi.resolveTransferDispute(tx.publicId ?? tx.id, 'release', resolution); await fetchTransfers(transferPage); } catch (err) { setError(err instanceof Error ? err.message : 'Unable to release transfer'); } }} className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">Release</button><button onClick={async () => { const resolution = window.prompt('Reverse reason:'); if (!resolution) return; try { await transactionsApi.resolveTransferDispute(tx.publicId ?? tx.id, 'reverse', resolution); await fetchTransfers(transferPage); } catch (err) { setError(err instanceof Error ? err.message : 'Unable to reverse transfer'); } }} className="rounded-full bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700">Reverse</button></> : <button onClick={async () => { const reason = window.prompt('Reason for placing this transfer under review:'); if (!reason) return; try { await transactionsApi.disputeTransfer(tx.publicId ?? tx.id, reason); await fetchTransfers(transferPage); } catch (err) { setError(err instanceof Error ? err.message : 'Unable to place transfer under review'); } }} className="rounded-full bg-orange-50 px-3 py-1.5 text-xs font-medium text-orange-700">Review / Hold</button>}</div></td></tr>)}</tbody>
+                </table>
+              </div>
+              <Pagination currentPage={transferPage} totalPages={transferMeta?.last_page ?? 1} onChange={setTransferPage} loading={loadingTransfers} from={transferMeta?.from ?? undefined} to={transferMeta?.to ?? undefined} total={transferMeta?.total} />
+            </div>
+          )}
+
           {/* ── CURRENCY WALLETS ── */}
-          {mainTab === 'currency-wallets' && (
+          {mainTab === 'currency-wallets' && currencyWalletView === 'wallets' && (
             <div className="p-8 space-y-5">
                 <div className="space-y-4">
+                  <div className="flex gap-2 border-b border-gray-100 pb-3">
+                    <button onClick={() => setCurrencyWalletView('wallets')} className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">Currency Wallets</button>
+                    <button onClick={() => setCurrencyWalletView('transfers')} className="rounded-full px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50">In-App Transfers</button>
+                  </div>
                   <div className="grid grid-cols-3 gap-3 w-full">
                     {(['USD', 'NGN', 'YUAN'] as CurrencyType[]).map((cur) => (
                       <button

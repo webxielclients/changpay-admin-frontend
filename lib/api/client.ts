@@ -867,6 +867,9 @@ export interface WalletRecord {
   availableBalance: string;
   isActive: boolean;
   isLocked: boolean;
+  status?: 'active' | 'frozen' | 'suspended' | 'disabled' | string | null;
+  lockNote: string | null;
+  lockedAt: string | null;
   isVerified: boolean;
   user: {
     firstName: string;
@@ -1020,6 +1023,12 @@ export const walletApi = {
     authedRequest<{ status: boolean; message: string; data: WalletRecord }>(
       `/wallets/${walletId}/toggle-lock`,
       { method: 'POST' }
+    ),
+
+  updateStatus: (walletId: string, status: 'active' | 'frozen', note?: string) =>
+    authedRequest<{ status: boolean; message: string; data: WalletRecord }>(
+      `/wallets/${walletId}/status`,
+      { method: 'PATCH', body: JSON.stringify({ status, ...(note ? { note } : {}) }) },
     ),
 
   getLedger: (params?: { action?: string; date_from?: string; date_to?: string; page?: number; per_page?: number; search?: string; wallet_id?: string }) => {
@@ -1911,6 +1920,9 @@ export interface Transaction {
   description: string | null;
   completedAt: string | null;
   createdAt: string;
+  direction?: string;
+  destination?: { type: string; name?: string | null; changpayId?: string | null; bankName?: string | null; accountNumber?: string | null; currency?: string | null; walletId?: string | null } | null;
+  holdStatus?: 'active' | 'released' | 'reversed' | null;
   // user/wallet info may be present on detail endpoint
   user?: { id: number; firstName: string; lastName: string; email: string; changpayId: string | null } | null;
   wallet?: { id: number; currency: string; uid: string } | null;
@@ -2058,6 +2070,18 @@ export const transactionsApi = {
     authedRequest<{ status: boolean; message: string; data: Transaction }>(
       `/transactions/${requireIdentifier(id, 'transaction')}/manual-review`,
       { method: 'POST' }
+    ),
+
+  disputeTransfer: (id: string | number, reason: string) =>
+    authedRequest<{ status: boolean; message: string; data: unknown }>(
+      `/wallets/transfers/${requireIdentifier(id, 'transaction')}/dispute`,
+      { method: 'POST', body: JSON.stringify({ reason }) },
+    ),
+
+  resolveTransferDispute: (id: string | number, action: 'release' | 'reverse', resolution: string) =>
+    authedRequest<{ status: boolean; message: string; data: unknown }>(
+      `/wallets/transfers/${requireIdentifier(id, 'transaction')}/resolve`,
+      { method: 'POST', body: JSON.stringify({ action, resolution }) },
     ),
 
   downloadReceipt: async (id: string | number) => {
