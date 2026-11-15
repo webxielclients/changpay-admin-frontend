@@ -8,6 +8,7 @@ const pageRoutes = [
   'app/auth/register/page.tsx',
   'app/auth/setup-pin/page.tsx',
   'app/auth/verify/page.tsx',
+  'app/forgot-password/page.tsx',
   'app/dashboard/page.tsx',
   'app/dashboard/users/page.tsx',
   'app/dashboard/users/[userId]/page.tsx',

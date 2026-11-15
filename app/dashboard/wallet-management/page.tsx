@@ -8,8 +8,7 @@ import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
 import Image from 'next/image';
 
-type MainTab       = 'overview' | 'currency-wallets' | 'ledger' | 'topup' | 'reconciliation';
-type CurrencyWalletView = 'wallets' | 'transfers';
+type MainTab       = 'overview' | 'currency-wallets' | 'in-app-transfers' | 'ledger' | 'topup' | 'reconciliation';
 type CurrencyType  = 'USD' | 'NGN' | 'YUAN';
 type LedgerAction  = 'all' | 'debit' | 'credit' | 'hold' | 'release';
 type TopupCurrency = 'all' | 'USD' | 'NGN';
@@ -380,7 +379,6 @@ export default function WalletManagementPage() {
 
   const [mainTab,          setMainTab]          = useState<MainTab>('overview');
   const [selectedCurrency, setSelectedCurrency]  = useState<CurrencyType>('USD');
-  const [currencyWalletView, setCurrencyWalletView] = useState<CurrencyWalletView>('wallets');
   const [walletSearch,     setWalletSearch]      = useState('');
   const [ledgerSearch,     setLedgerSearch]      = useState('');
   const [ledgerAction,     setLedgerAction]      = useState<LedgerAction>('all');
@@ -518,10 +516,10 @@ export default function WalletManagementPage() {
     if (mainTab === 'currency-wallets') fetchCurrencyWallets(selectedCurrency, currentPage, walletSearch);
     if (mainTab === 'topup') fetchTopups(topupSearch, topupFilter, topupCurrency, topupPage);
     if (mainTab === 'ledger') fetchLedger(ledgerSearch, ledgerAction, ledgerPage);
-    if (mainTab === 'currency-wallets' && currencyWalletView === 'transfers') fetchTransfers(transferPage);
+    if (mainTab === 'in-app-transfers') fetchTransfers(transferPage);
     if (mainTab === 'reconciliation') fetchReconciliation();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mainTab, currencyWalletView, selectedCurrency, currentPage, topupSearch, topupFilter, topupCurrency, topupPage, ledgerSearch, ledgerAction, ledgerPage, transferPage, fetchTransfers]);
+  }, [mainTab, selectedCurrency, currentPage, topupSearch, topupFilter, topupCurrency, topupPage, ledgerSearch, ledgerAction, ledgerPage, transferPage, fetchTransfers]);
 
   const handleWalletSearch = (val: string) => {
     setWalletSearch(val);
@@ -578,6 +576,7 @@ export default function WalletManagementPage() {
   const MAIN_TABS: { id: MainTab; label: string }[] = [
     { id: 'overview',         label: 'Overview' },
     { id: 'currency-wallets', label: 'Currency Wallets' },
+    { id: 'in-app-transfers', label: 'In-App Transfers' },
     { id: 'ledger',           label: 'Ledger' },
     { id: 'topup',            label: 'Top Up' },
     { id: 'reconciliation',   label: 'Reconciliation' },
@@ -742,12 +741,8 @@ export default function WalletManagementPage() {
             </div>
           )}
 
-          {mainTab === 'currency-wallets' && currencyWalletView === 'transfers' && (
+          {mainTab === 'in-app-transfers' && (
             <div className="p-8 space-y-5">
-              <div className="flex gap-2 border-b border-gray-100 pb-3">
-                <button onClick={() => setCurrencyWalletView('wallets')} className="rounded-full px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50">Currency Wallets</button>
-                <button onClick={() => setCurrencyWalletView('transfers')} className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">In-App Transfers</button>
-              </div>
               <div className="flex items-center justify-between">
                 <div><h2 className="text-lg font-semibold text-gray-900">In-App Transfers</h2><p className="text-sm text-gray-500">Review transfers across the selected currency wallet.</p></div>
                 <select value={selectedCurrency} onChange={(e) => { setSelectedCurrency(e.target.value as CurrencyType); setTransferPage(1); }} className="rounded-full border border-gray-200 px-4 py-2 text-sm">
@@ -764,13 +759,9 @@ export default function WalletManagementPage() {
           )}
 
           {/* ── CURRENCY WALLETS ── */}
-          {mainTab === 'currency-wallets' && currencyWalletView === 'wallets' && (
+          {mainTab === 'currency-wallets' && (
             <div className="p-8 space-y-5">
                 <div className="space-y-4">
-                  <div className="flex gap-2 border-b border-gray-100 pb-3">
-                    <button onClick={() => setCurrencyWalletView('wallets')} className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">Currency Wallets</button>
-                    <button onClick={() => setCurrencyWalletView('transfers')} className="rounded-full px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50">In-App Transfers</button>
-                  </div>
                   <div className="grid grid-cols-3 gap-3 w-full">
                     {(['USD', 'NGN', 'YUAN'] as CurrencyType[]).map((cur) => (
                       <button

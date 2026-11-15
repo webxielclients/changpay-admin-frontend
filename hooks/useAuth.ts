@@ -94,6 +94,7 @@ export function useAuth() {
           email: data.email,
           password: data.password,
           password_confirmation: data.confirmPassword,
+          registration_code: data.registrationCode,
         });
         // Keep email for the verify page
         setTempEmail(data.email);

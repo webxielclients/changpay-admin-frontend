@@ -14,6 +14,7 @@ export const loginSchema = z.object({
 
 export const registerSchema = z
   .object({
+    registrationCode: z.string().min(1, 'Admin registration code is required'),
     email: z
       .string()
       .min(1, AUTH_ERRORS.EMAIL_REQUIRED)

@@ -15,7 +15,7 @@ export default function RegisterPage() {
   const router = useRouter();
   const { handleRegister } = useAuth();
   const { isLoading, error } = useAuthStore();
-  const [formData, setFormData] = useState<RegisterInput>({ email: '', password: '', confirmPassword: '' });
+  const [formData, setFormData] = useState<RegisterInput>({ registrationCode: '', email: '', password: '', confirmPassword: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [rememberDetails, setRememberDetails] = useState(false);
@@ -56,6 +56,10 @@ export default function RegisterPage() {
         </div>
         {error && <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
         <form onSubmit={submit} className="space-y-4">
+          <label className="block text-xs font-medium text-gray-800">Admin registration code
+            <input name="registrationCode" value={formData.registrationCode} onChange={(event) => update('registrationCode', event.target.value)} placeholder="CP-ADMIN-..." autoComplete="off" disabled={isLoading} className={`${inputClass('registrationCode')} mt-1.5`} />
+            {fieldErrors.registrationCode && <span className="mt-1 block text-xs text-red-500">{fieldErrors.registrationCode}</span>}
+          </label>
           <label className="block text-xs font-medium text-gray-800">Email
             <input name="email" type="email" value={formData.email} onChange={(event) => update('email', event.target.value)} placeholder="example@gmail.com" autoComplete="email" disabled={isLoading} className={`${inputClass('email')} mt-1.5`} />
             {fieldErrors.email && <span className="mt-1 block text-xs text-red-500">{fieldErrors.email}</span>}

@@ -20,6 +20,7 @@ export default function SettingsPage() {
   const avatarInput = useRef<HTMLInputElement>(null);
   const [profile, setProfile] = useState({ first_name: '', last_name: '' });
   const [password, setPassword] = useState({ current_password: '', password: '', password_confirmation: '' });
+  const [pin, setPin] = useState({ current_password: '', pin: '', pin_confirmation: '' });
   const [setupPasswords, setSetupPasswords] = useState<Record<TwoFactorMethod, string>>({ email: '', totp: '' });
   const [codes, setCodes] = useState<Record<TwoFactorMethod, string>>({ email: '', totp: '' });
   const [setups, setSetups] = useState<Partial<Record<TwoFactorMethod, TwoFactorSetupResponse>>>({});
@@ -148,6 +149,17 @@ export default function SettingsPage() {
               <PasswordField label="Confirm new password" value={password.password_confirmation} onChange={(value) => setPassword({ ...password, password_confirmation: value })} autoComplete="new-password" disabled={busy} />
               <button type="button" disabled={busy} onClick={() => void run(async () => { await adminSecurityApi.changePassword(password); setPassword({ current_password: '', password: '', password_confirmation: '' }); }, 'Password updated.')} className="admin-button admin-button-primary">Update password</button>
             </div>
+          </div>
+
+          <div className="admin-card">
+            <h2 className="text-lg font-semibold text-gray-900">Admin PIN</h2>
+            <p className="mt-2 text-sm text-gray-500">Set a four-digit PIN. It can be used as the second factor for password recovery.</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <PasswordField label="Current password" value={pin.current_password} onChange={(value) => setPin({ ...pin, current_password: value })} autoComplete="current-password" disabled={busy} />
+              <input className="admin-input" inputMode="numeric" maxLength={4} placeholder="New PIN" value={pin.pin} onChange={(event) => setPin({ ...pin, pin: event.target.value.replace(/\D/g, '').slice(0, 4) })} />
+              <input className="admin-input" inputMode="numeric" maxLength={4} placeholder="Confirm PIN" value={pin.pin_confirmation} onChange={(event) => setPin({ ...pin, pin_confirmation: event.target.value.replace(/\D/g, '').slice(0, 4) })} />
+            </div>
+            <button type="button" disabled={busy || pin.pin.length !== 4 || pin.pin !== pin.pin_confirmation || !pin.current_password} onClick={() => void run(async () => { const response = await adminSecurityApi.setPin(pin); setStatus(response.data); setPin({ current_password: '', pin: '', pin_confirmation: '' }); }, 'Admin PIN saved.')} className="admin-button admin-button-primary mt-4">Save PIN</button>
           </div>
 
           {twoFactorEnabled && <div className="admin-card">

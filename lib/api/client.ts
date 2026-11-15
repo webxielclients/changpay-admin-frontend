@@ -286,12 +286,30 @@ export const authApi = {
     return { complete: true as const, token: res.data.token, user: res.data, sessionExpiresAt: res.data.sessionExpiresAt ?? null, message: res.message, remainingMethods: [] };
   },
 
-  register: async (data: { email: string; password: string; password_confirmation: string }) => {
+  register: async (data: { email: string; password: string; password_confirmation: string; registration_code: string }) => {
     const res = await request<RegisterApiResponse>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(data),
     });
     if (!res.status) throw new Error(res.message || 'Registration failed');
+    return { user: res.data, message: res.message };
+  },
+
+  forgotPassword: async (email: string) => {
+    const res = await request<{ status: boolean; message: string; data: null }>('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) });
+    if (!res.status) throw new Error(res.message || 'Unable to start password recovery');
+    return { message: res.message };
+  },
+
+  verifyPasswordReset: async (email: string, code: string) => {
+    const res = await request<{ status: boolean; message: string; data: { recovery_token: string; methods: Array<'pin' | 'totp'> } }>('/auth/forgot-password/verify', { method: 'POST', body: JSON.stringify({ email, code }) });
+    if (!res.status) throw new Error(res.message || 'Unable to verify password reset code');
+    return res.data;
+  },
+
+  resetPassword: async (data: { recovery_token: string; password: string; password_confirmation: string; factor: 'pin' | 'totp'; factor_code: string }) => {
+    const res = await request<{ status: boolean; message: string; data: VerifiedUser }>('/auth/reset-password', { method: 'POST', body: JSON.stringify(data) });
+    if (!res.status) throw new Error(res.message || 'Unable to reset password');
     return { user: res.data, message: res.message };
   },
 
@@ -828,6 +846,7 @@ export interface AdminTwoFactorStatus {
   enabled: boolean;
   email_enabled: boolean;
   totp_enabled: boolean;
+  pin_enabled?: boolean;
 }
 
 export const adminSecurityApi = {
@@ -843,6 +862,8 @@ export const adminSecurityApi = {
     }),
   changePassword: (body: { current_password: string; password: string; password_confirmation: string }) =>
     authedRequest<{ data: null }>('/auth/password', { method: 'POST', body: JSON.stringify(body) }),
+  setPin: (body: { current_password: string; pin: string; pin_confirmation: string }) =>
+    authedRequest<{ data: AdminTwoFactorStatus }>('/auth/pin', { method: 'POST', body: JSON.stringify(body) }),
   twoFactorStatus: () => authedRequest<{ data: AdminTwoFactorStatus }>('/auth/two-factor'),
   initiateTwoFactor: (method: 'email' | 'totp', current_password?: string) => authedRequest<{ data: { method: string; qr_code_url?: string; qr_code_data_uri?: string; secret?: string; otpauth_uri?: string; message?: string } }>('/auth/two-factor/initiate', {
     method: 'POST',
@@ -1602,6 +1623,8 @@ export interface AdminUserRecord2 {
   lastName: string;
   email: string;
   isActive: boolean;
+  pinEnabled?: boolean;
+  loginLockedUntil?: string | null;
   lastLoginAt: string | null;
   role: RoleRecord | null;
   createdAt: string;
@@ -1707,6 +1730,11 @@ export const rolesApi2 = {
       `/roles/admins${query}`
     );
   },
+
+  generateRegistrationCode: (data?: { expires_in_minutes?: number; role_id?: number }) =>
+    authedRequest<{ status: boolean; message: string; data: { code: string; expires_at: string; role_id: number | null } }>('/roles/registration-codes', {
+      method: 'POST', body: JSON.stringify(data ?? {}),
+    }),
 
   getAdmin: (id: number) =>
     authedRequest<{ status: boolean; message: string; data: AdminUserRecord2 }>(`/roles/admins/${id}`),
