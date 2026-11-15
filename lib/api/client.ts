@@ -1,0 +1,2183 @@
+import type { User } from '@/store/authStore';
+import { useAuthStore } from '@/store/authStore';
+import { getAdminSessionToken } from '@/lib/auth/session';
+
+const BASE_URL = '/api/proxy';
+
+type PublicIdentifierRecord = {
+  id?: string | number;
+  publicId?: string | null;
+  public_id?: string | null;
+};
+
+function normalizePublicIdentifier<T>(resource: T): T & { id: string | number; publicId: string | null } {
+  const value = resource as T & PublicIdentifierRecord;
+  const publicId = value.publicId ?? value.public_id ?? null;
+  return {
+    ...value,
+    id: publicId ?? value.id ?? '',
+    publicId,
+  } as T & { id: string | number; publicId: string | null };
+}
+
+function requireIdentifier(value: string | number | null | undefined, resource: string): string {
+  const identifier = value == null ? '' : String(value).trim();
+  if (!identifier || identifier === 'undefined' || identifier === 'null') {
+    throw new Error(`Missing public identifier for ${resource}.`);
+  }
+  return encodeURIComponent(identifier);
+}
+
+function normalizePage<T>(page: MetaPaginatedResponse<T>): MetaPaginatedResponse<T & { id: string | number; publicId: string | null }> {
+  return { ...page, data: (page.data ?? []).map((item) => normalizePublicIdentifier(item)) } as MetaPaginatedResponse<T & { id: string | number; publicId: string | null }>;
+}
+
+
+interface ApiErrorResponse {
+  status: false;
+  success: false;
+  message: string;
+  errors?: Record<string, string[]>;
+}
+
+// ─── Core fetch helper ────────────────────────────────────────────────────────
+
+async function request<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  token?: string | null
+): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    ...(options.headers as Record<string, string>),
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}${endpoint}`, {
+      ...options,
+      headers,
+    });
+  } catch {
+    throw new Error('You are offline. Check your connection and try again.');
+  }
+
+  // Handle 401 — clear auth and redirect to login
+  if (response.status === 401 && token) {
+    if (typeof window !== 'undefined') {
+      useAuthStore.getState().logout();
+      window.location.href = new URL('/login', window.location.origin).toString();
+    }
+    throw new Error('Session expired. Please log in again.');
+  }
+
+  const text = await response.text();
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    if (!response.ok) {
+      throw new Error(text || `Request failed (${response.status})`);
+    }
+    throw new Error(`Unexpected response format (${response.status})`);
+  }
+
+  if (!response.ok) {
+    const err = json as ApiErrorResponse;
+    if (err?.errors) {
+      const firstKey = Object.keys(err.errors)[0];
+      const firstMsg = err.errors[firstKey];
+      throw new Error(Array.isArray(firstMsg) ? firstMsg[0] : String(firstMsg));
+    }
+    throw new Error(err?.message || `Request failed (${response.status})`);
+  }
+
+  return json as T;
+}
+
+// Authenticated request — always reads from Zustand in-memory store
+// Falls back to raw localStorage key set during login
+function authedRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const storeToken = useAuthStore.getState().token;
+  const token = storeToken ?? getAdminSessionToken();
+  return request<T>(endpoint, options, token);
+}
+
+async function authedMultipartRequest<T>(endpoint: string, body: FormData): Promise<T> {
+  const storeToken = useAuthStore.getState().token;
+  const token = storeToken ?? getAdminSessionToken();
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}${endpoint}`, {
+      method: 'POST',
+      headers,
+      body,
+    });
+  } catch {
+    throw new Error('You are offline. Check your connection and try again.');
+  }
+  const payload = await response.json().catch(() => null) as (T & { message?: string }) | null;
+  if (!response.ok) throw new Error(payload?.message || `Request failed (${response.status})`);
+  return payload as T;
+}
+
+// ─── Auth types ───────────────────────────────────────────────────────────────
+
+export type TwoFactorMethod = 'email' | 'totp';
+
+export interface TwoFactorSetupResponse {
+  method: TwoFactorMethod;
+  qr_code_url?: string | null;
+  qr_code_data_uri?: string | null;
+  secret?: string | null;
+  otpauth_uri?: string | null;
+  message?: string | null;
+  email_sent?: boolean;
+  resend_supported?: boolean;
+}
+
+interface AdminApiResource {
+  id?: string | number;
+  publicId?: string | null;
+  public_id?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  email: string;
+  avatarUrl?: string | null;
+  isActive?: boolean;
+  permissions?: string[];
+  role?: { permissions?: Array<{ code?: string }> };
+  token?: string | null;
+  sessionExpiresAt?: string | null;
+  requires_two_factor?: boolean;
+  challenge_token?: string;
+  methods?: TwoFactorMethod[];
+  complete?: boolean;
+  remaining_methods?: TwoFactorMethod[];
+  remainingMethods?: TwoFactorMethod[];
+  admin?: AdminApiResource;
+}
+
+interface LoginApiResponse {
+  status: boolean;
+  message: string;
+  data: {
+    [key: string]: unknown;
+    email: string;
+    token?: string | null;
+    publicId?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+    sessionExpiresAt?: string | null;
+    requires_two_factor?: boolean;
+    challenge_token?: string;
+    methods?: TwoFactorMethod[];
+    complete?: boolean;
+    remaining_methods?: TwoFactorMethod[];
+    remainingMethods?: TwoFactorMethod[];
+    admin?: AdminApiResource;
+  };
+}
+
+interface RegisterApiResponse {
+  status: boolean;
+  message: string;
+  data: User;
+}
+
+type VerifiedUser = AdminApiResource;
+
+// ─── Auth API ─────────────────────────────────────────────────────────────────
+
+export const authApi = {
+  me: async (token?: string) => {
+    const res = await request<{ status: boolean; message: string; data: AdminApiResource }>('/auth/me', {}, token ?? getAdminSessionToken());
+    if (!res.status) throw new Error(res.message || 'Unable to load profile');
+    return {
+      user: {
+        id: res.data.id ?? res.data.publicId ?? '',
+        publicId: res.data.publicId ?? null,
+        email: res.data.email,
+        first_name: res.data.firstName ?? '',
+        last_name: res.data.lastName ?? '',
+        avatar_url: res.data.avatarUrl ?? null,
+        is_active: res.data.isActive ?? true,
+        permissions: res.data.permissions ?? res.data.role?.permissions?.map((permission) => permission.code ?? '').filter(Boolean) ?? [],
+      },
+      sessionExpiresAt: res.data.sessionExpiresAt ?? null,
+      message: res.message,
+    };
+  },
+
+  refreshSession: async () => {
+    const res = await authedRequest<{ status: boolean; message: string; data: AdminApiResource }>(
+      '/auth/session/refresh',
+      { method: 'POST' },
+    );
+    if (!res.status) throw new Error(res.message || 'Unable to extend admin session');
+    return { sessionExpiresAt: res.data.sessionExpiresAt ?? null, message: res.message };
+  },
+
+  login: async (credentials: { email: string; password: string }): Promise<
+    | {
+        token: null;
+        user: VerifiedUser | LoginApiResponse['data'];
+        message: string;
+        requiresTwoFactor: true;
+        challengeToken: string | null;
+        methods: TwoFactorMethod[];
+        sessionExpiresAt: string | null;
+      }
+    | {
+        token: string;
+        user: LoginApiResponse['data'];
+        message: string;
+        requiresTwoFactor: false;
+        challengeToken: null;
+        methods: TwoFactorMethod[];
+        sessionExpiresAt: string | null;
+      }
+  > => {
+    const res = await request<LoginApiResponse>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(credentials),
+    });
+    if (!res.status) throw new Error(res.message || 'Login failed');
+    if (res.data.requires_two_factor) {
+      return {
+        token: null,
+        user: res.data.admin ?? res.data,
+        message: res.message,
+        requiresTwoFactor: true,
+        challengeToken: res.data.challenge_token ?? null,
+        methods: res.data.methods ?? [],
+        sessionExpiresAt: null,
+      };
+    }
+    const token = res.data.token;
+    if (!token) throw new Error('Login response did not include a token');
+    return {
+      token,
+      user: res.data,
+      message: res.message,
+      requiresTwoFactor: false,
+      challengeToken: null,
+      methods: [],
+      sessionExpiresAt: res.data.sessionExpiresAt ?? null,
+    };
+  },
+
+  verifyTwoFactorLogin: async (data: { challenge_token: string; method: 'email' | 'totp'; code: string }) => {
+    const res = await request<LoginApiResponse>('/auth/two-factor/verify', { method: 'POST', body: JSON.stringify(data) });
+    if (!res.status) throw new Error(res.message || 'Two-factor verification failed');
+    const remainingMethods = res.data.remaining_methods ?? res.data.remainingMethods ?? [];
+    const complete = res.data.complete ?? Boolean(res.data.token);
+    if (!complete || !res.data.token) {
+      return { complete: false as const, token: null, user: null, message: res.message, remainingMethods };
+    }
+    return { complete: true as const, token: res.data.token, user: res.data, sessionExpiresAt: res.data.sessionExpiresAt ?? null, message: res.message, remainingMethods: [] };
+  },
+
+  register: async (data: { email: string; password: string; password_confirmation: string }) => {
+    const res = await request<RegisterApiResponse>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    if (!res.status) throw new Error(res.message || 'Registration failed');
+    return { user: res.data, message: res.message };
+  },
+
+  verifyEmail: async (data: { email: string; otp: string }) => {
+    const res = await request<{ status: boolean; message: string; data: VerifiedUser }>(
+      '/auth/verify-email',
+      { method: 'POST', body: JSON.stringify(data) }
+    );
+    if (!res.status) throw new Error(res.message || 'Email verification failed');
+    return { user: res.data, message: res.message };
+  },
+
+  resendVerification: async (email: string) => {
+    const res = await request<{ status: boolean; message: string; data: { email: string | null } }>(
+      '/auth/resend-verification',
+      { method: 'POST', body: JSON.stringify({ email }) }
+    );
+    if (!res.status) throw new Error(res.message || 'Failed to resend verification code');
+    return { message: res.message };
+  },
+
+  googleAuth: async (idToken: string) => {
+    const res = await request<{ status: boolean; message: string; data: VerifiedUser & { token?: string | null; sessionExpiresAt?: string | null } }>(
+      '/auth/google',
+      { method: 'POST', body: JSON.stringify({ token: idToken }) }
+    );
+    if (!res.status) throw new Error(res.message || 'Google authentication failed');
+    return { user: res.data, token: res.data.token ?? null, sessionExpiresAt: res.data.sessionExpiresAt ?? null, message: res.message };
+  },
+
+  logout: (token: string) =>
+    request<{ status: boolean; message: string }>(
+      '/auth/logout',
+      { method: 'POST' },
+      token
+    ),
+};
+
+// ─── User Management types ────────────────────────────────────────────────────
+
+// List endpoint returns snake_case; detail endpoint returns camelCase.
+// The page casts accordingly — see user-detail-page.tsx.
+export interface AdminUserRecord {
+  id: string | number;
+  publicId?: string | null;
+  email: string;
+  // snake_case (legacy / detail endpoint)
+  first_name: string;
+  last_name: string;
+  phone_number: string | null;
+  dob: string | null;
+  country: string | null;
+  state: string | null;
+  city: string | null;
+  address: string | null;
+  email_verified_at: string | null;
+  created_at: string;
+  updated_at: string;
+  google_id: string | null;
+  apple_id: string | null;
+  kyc_status: string | null;
+  kyb_status: string | null;
+  account_status?: string | null;
+  deleted_at: string | null;
+  changpay_id: string | null;
+  is_active: boolean;
+  last_login_at: string | null;
+  // camelCase variants (list + detail endpoints)
+  firstName?: string | null;
+  lastName?: string | null;
+  phoneNumber?: string | null;
+  dateOfBirth?: string | null;
+  changpayId?: string | null;
+  kycStatus?: string | null;
+  kybStatus?: string | null;
+  accountStatus?: string | null;
+  isActive?: boolean;
+  emailVerified?: boolean;
+  createdAt?: string | null;
+  lastLoginAt?: string | null;
+  avatarUrl?: string | null;
+  balances?: { USD: string; NGN: string; YUAN: string };
+}
+
+export interface PaginatedResponse<T> {
+  current_page: number;
+  data: T[];
+  first_page_url: string;
+  from: number;
+  last_page: number;
+  last_page_url: string;
+  links: { url: string | null; label: string; active: boolean }[];
+  next_page_url: string | null;
+  path: string;
+  per_page: number;
+  prev_page_url: string | null;
+  to: number;
+  total: number;
+}
+
+export interface MetaPaginatedResponse<T> {
+  data: T[];
+  links: {
+    first: string | null;
+    last: string | null;
+    prev: string | null;
+    next: string | null;
+  };
+  meta: {
+    current_page: number;
+    from: number | null;
+    last_page: number;
+    links: { url: string | null; label: string; page: number | null; active: boolean }[];
+    path: string;
+    per_page: number;
+    to: number | null;
+    total: number;
+  };
+}
+
+export interface AdminNote {
+  id: number;
+  user_id: number;
+  admin_id: number;
+  note: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ─── Users API ────────────────────────────────────────────────────────────────
+
+export const usersApi = {
+  getUsers: (params?: {
+    search?: string;
+    kyc_status?: string;
+    is_active?: boolean;
+    account_status?: string;
+    per_page?: number;
+    page?: number;
+  }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<AdminUserRecord> }>(`/users${query}`).then((response) => ({
+      ...response,
+      data: normalizePage(response.data),
+    }));
+  },
+
+  getUser: (id: string | number) =>
+    authedRequest<{ status: boolean; message: string; data: AdminUserRecord }>(`/users/${requireIdentifier(id, 'user')}`).then((response) => ({
+      ...response,
+      data: normalizePublicIdentifier(response.data),
+    })),
+
+  toggleStatus: (id: string | number) =>
+    authedRequest<{ status: boolean; message: string; data: AdminUserRecord }>(
+      `/users/${requireIdentifier(id, 'user')}/toggle-status`,
+      { method: 'POST' }
+    ),
+
+  updateStatus: (id: string | number, status: string) =>
+    authedRequest<{ status: boolean; message: string; data: AdminUserRecord }>(
+      `/users/${requireIdentifier(id, 'user')}/status`,
+      { method: 'PATCH', body: JSON.stringify({ status }) },
+    ),
+
+  getNotes: (id: string | number, page = 1) =>
+    authedRequest<{ status: boolean; message: string; data: PaginatedResponse<AdminNote> }>(
+      `/users/${requireIdentifier(id, 'user')}/notes?page=${page}`
+    ),
+
+  addNote: (id: string | number, note: string) =>
+    authedRequest<{ status: boolean; message: string; data: AdminNote }>(
+      `/users/${requireIdentifier(id, 'user')}/notes`,
+      { method: 'POST', body: JSON.stringify({ note }) }
+    ),
+
+  getTransactions: (
+    userId: string | number,
+    params?: {
+      currency?: 'USD' | 'NGN' | 'YUAN';
+      type?: 'deposit' | 'withdrawal' | 'transfer' | 'conversion';
+      status?: string;
+      search?: string;
+      per_page?: number;
+      page?: number;
+    }
+  ) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<UserTransactionItem> }>(`/users/${requireIdentifier(userId, 'user')}/transactions${query}`).then((response) => ({
+      ...response,
+      data: normalizePage(response.data),
+    }));
+  },
+};
+
+export interface UserTransactionItem {
+  id: number | string;
+  publicId?: string | null;
+  type: string;
+  category?: string;
+  amount: string | number;
+  currency: string;
+  status: string;
+  reference?: string;
+  channel?: string;
+  fee?: string;
+  created_at?: string;
+  createdAt?: string;
+  dateTime?: string;
+  counterparty?: { name?: string | null; changpayId?: string | null } | null;
+  risk?: string;
+}
+
+// ─── Dashboard types ──────────────────────────────────────────────────────────
+
+export interface CurrencyBalance {
+  count: number;
+  total_balance: number;
+  last_period_balance: number;
+  change_percent: number;
+  change_direction: 'up' | 'down';
+}
+
+export interface FxExposureRate {
+  from_currency: string;
+  to_currency: string;
+  rate: string;
+}
+
+export interface DashboardOverviewData {
+  users: {
+    total: number;
+    active: number;
+    verified: number;
+    pending: number;
+    new_in_period: number;
+    change_percent: number;
+    change_direction: 'up' | 'down';
+  };
+  by_currency: {
+    USD: CurrencyBalance;
+    NGN: CurrencyBalance;
+    YUAN: CurrencyBalance;
+  };
+  alerts: { failed_transactions: number; fraud_alerts: number };
+  pending_actions: {
+    kyc_approvals: number;
+    failed_payouts: number;
+    flagged_transactions: number;
+    open_disputes: number;
+    open_tickets: number;
+  };
+  fx_exposure: FxExposureRate[];
+  fx_exposure_summary: { USD: string; NGN: string; YUAN: string };
+}
+
+export interface ChartDataPoint {
+  period: number | string;
+  count: number;
+  volume: number;
+  change_percent: number | null;
+}
+
+export interface ChartData {
+  interval: string;
+  date_from: string;
+  date_to: string;
+  total_volume: number;
+  total_count: string;
+  data: ChartDataPoint[];
+}
+
+export interface RecentTransaction {
+  id: string;
+  sourceType: string;
+  sourceId: number;
+  client: {
+    name: string;
+    changpayId: string | null;
+    avatar: string | null;
+  };
+  type: string;
+  channel: string;
+  amount: number;
+  currency: string;
+  status: string;
+  dateTime: string;
+  risk: string;
+}
+
+// ─── Dashboard API ────────────────────────────────────────────────────────────
+
+export const dashboardApi = {
+  getOverview: (params?: { date_from?: string; date_to?: string; interval?: string }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: DashboardOverviewData }>(
+      `/dashboard${query}`
+    );
+  },
+
+  getChart: (params?: {
+    date_from?: string;
+    date_to?: string;
+    interval?: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: ChartData }>(
+      `/dashboard/chart${query}`
+    );
+  },
+
+  getRecentTransactions: (limit?: number) => {
+    const query = limit ? `?limit=${limit}` : '';
+    return authedRequest<{ status: boolean; message: string; data: RecentTransaction[] }>(
+      `/dashboard/recent-transactions${query}`
+    );
+  },
+};
+
+// ─── FX Engine types ──────────────────────────────────────────────────────────
+
+export interface ConversionRate {
+  id: number;
+  type: 'conversion';
+  pair: string;
+  from_currency: string;
+  to_currency: string;
+  rate: string;
+  buy_rate?: string;
+  sell_rate?: string;
+  is_active: boolean;
+  is_manually_overridden?: boolean;
+  updated_at: string;
+}
+
+export interface SpreadConfig {
+  id: number;
+  pair: string;
+  fromCurrency: string;
+  toCurrency: string;
+  baseSpread: number;
+  dynamicSpread: number;
+  totalSpread: number;
+  minSpread: number;
+  maxSpread: number;
+  isActive: boolean;
+  updatedAt: string;
+}
+
+export interface CryptoRateMarkup {
+  id: number;
+  cryptoCurrency: string;
+  ratePercentage: string;
+  isActive: boolean;
+  updatedAt: string;
+}
+
+export interface FxOverrideResult {
+  id: number;
+  pair: string;
+  fromCurrency: string;
+  toCurrency: string;
+  rate: string;
+  buyRate: string;
+  sellRate: string;
+  spreadPercent: number;
+  source: string;
+  isActive: boolean;
+  isManuallyOverridden: boolean;
+  isDerived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConversionRateResource {
+  id: number;
+  pair: string;
+  fromCurrency: string;
+  toCurrency: string;
+  rate: string;
+  buyRate: string | null;
+  sellRate: string | null;
+  spreadPercent: number | null;
+  source: string | null;
+  isActive: boolean;
+  isManuallyOverridden: boolean;
+  isDerived: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CryptoRate {
+  id: number;
+  type: 'crypto';
+  pair: string;
+  crypto_currency: string;
+  rate_percentage: string;
+  is_active: boolean;
+  updated_at: string;
+}
+
+export interface FxOverviewSummary {
+  total_conversion_pairs: number;
+  active_conversion_pairs: number;
+  total_crypto_rates: number;
+  active_crypto_rates: number;
+}
+
+export interface FxOverviewData {
+  conversion_rates: ConversionRate[];
+  crypto_rates: CryptoRate[];
+  summary: FxOverviewSummary;
+}
+
+export interface FxProviderSetting {
+  key: string;
+  name?: string;
+  enabled: boolean;
+  comparison_only?: boolean;
+  max_age_seconds: number;
+  max_change_percent?: number | string;
+  parameters?: Record<string, string | number | boolean> | null;
+  credentials_configured?: boolean;
+  failure_code?: string | null;
+  last_attempt_at?: string | null;
+}
+
+export interface FxPricingSettingsOverview {
+  revision: number;
+  execution_enabled: boolean;
+  currencies: Array<Record<string, unknown>>;
+  providers: FxProviderSetting[];
+  pairs: Array<Record<string, unknown>>;
+}
+
+// ─── FX API ───────────────────────────────────────────────────────────────────
+
+export const fxApi = {
+  getOverview: () =>
+    authedRequest<{ status: boolean; message: string; data: FxOverviewData }>('/fx/overview'),
+
+  getConversionRates: () =>
+    authedRequest<{ status: boolean; message: string; data: ConversionRate[] }>('/conversion-rates'),
+
+  setConversionRate: (body: { from_currency: string; to_currency: string; rate: number }) =>
+    authedRequest<{ status: boolean; message: string; data: ConversionRateResource }>('/conversion-rates', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  getSpreads: () =>
+    authedRequest<{ status: boolean; message: string; data: SpreadConfig[] }>('/fx/spreads'),
+
+  getCryptoRateMarkups: () =>
+    authedRequest<{ status: boolean; message: string; data: CryptoRateMarkup[] }>('/crypto-rates'),
+
+  applyOverride: (body: { from_currency: string; to_currency: string; buy_rate: number; sell_rate: number; reason: string }) =>
+    authedRequest<{ status: boolean; message: string; data: FxOverrideResult }>('/fx/override', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  releaseOverride: (rateId: number) =>
+    authedRequest<{ status: boolean; message: string; data: FxOverrideResult }>(`/fx/override/${rateId}`, {
+      method: 'DELETE',
+    }),
+
+  /** GET /conversions — paginated list of inter-wallet currency conversion transactions. */
+  getConversions: (params?: {
+    date_from?: string;
+    date_to?: string;
+    from_currency?: 'USD' | 'NGN' | 'YUAN';
+    to_currency?: 'USD' | 'NGN' | 'YUAN';
+    per_page?: number;
+    search?: string;
+    page?: number;
+  }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => [k, String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<ConversionTransaction> | null }>(
+      `/conversions${query}`
+    );
+  },
+
+  getProviderSettings: () =>
+    authedRequest<{ data: FxPricingSettingsOverview }>('/fx/pricing'),
+
+  updateProvider: (body: Record<string, unknown>) =>
+    authedRequest<{ data: FxPricingSettingsOverview }>('/fx/pricing/settings/provider', {
+      method: 'PUT',
+      body: JSON.stringify({ ...body, kind: 'provider' }),
+    }),
+
+  updateCurrency: (body: Record<string, unknown>) =>
+    authedRequest<{ data: FxPricingSettingsOverview }>('/fx/pricing/settings/currency', {
+      method: 'PUT',
+      body: JSON.stringify({ ...body, kind: 'currency' }),
+    }),
+
+  updatePair: (body: Record<string, unknown>) =>
+    authedRequest<{ data: FxPricingSettingsOverview }>('/fx/pricing/settings/pair', {
+      method: 'PUT',
+      body: JSON.stringify({ ...body, kind: 'pair' }),
+    }),
+
+  previewPair: (body: Record<string, unknown>) =>
+    authedRequest<{ data: { safe: boolean; pair: Record<string, unknown>; edges: Record<string, unknown>; expires_at: string } }>('/fx/pricing/settings/pair/preview', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  refreshProvider: (provider: string) =>
+    authedRequest<{ data: unknown }>(`/fx/pricing/providers/${encodeURIComponent(provider)}/refresh`, { method: 'POST' }),
+
+  getProviderAudit: () =>
+    authedRequest<{ data: unknown }>('/fx/pricing/audit'),
+};
+
+export interface AdminTwoFactorStatus {
+  enabled: boolean;
+  email_enabled: boolean;
+  totp_enabled: boolean;
+}
+
+export const adminSecurityApi = {
+  uploadAvatar: (file: File) => {
+    const body = new FormData();
+    body.append('avatar', file);
+    return authedMultipartRequest<{ data: { avatar_url?: string | null; avatarUrl?: string | null } }>('/auth/avatar', body);
+  },
+  updateProfile: (body: { first_name: string; last_name: string }) =>
+    authedRequest<{ data: { firstName: string; lastName: string; email: string; avatarUrl?: string | null } }>('/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  changePassword: (body: { current_password: string; password: string; password_confirmation: string }) =>
+    authedRequest<{ data: null }>('/auth/password', { method: 'POST', body: JSON.stringify(body) }),
+  twoFactorStatus: () => authedRequest<{ data: AdminTwoFactorStatus }>('/auth/two-factor'),
+  initiateTwoFactor: (method: 'email' | 'totp', current_password?: string) => authedRequest<{ data: { method: string; qr_code_url?: string; qr_code_data_uri?: string; secret?: string; otpauth_uri?: string; message?: string } }>('/auth/two-factor/initiate', {
+    method: 'POST',
+    body: JSON.stringify({ method, ...(current_password ? { current_password } : {}) }),
+  }),
+  confirmTwoFactor: (method: 'email' | 'totp', code: string) => authedRequest<{ data: AdminTwoFactorStatus }>('/auth/two-factor/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ method, code }),
+  }),
+  disableTwoFactor: (method: 'email' | 'totp', current_password?: string) => authedRequest<{ data: AdminTwoFactorStatus }>('/auth/two-factor/disable', {
+    method: 'POST',
+    body: JSON.stringify({ method, ...(current_password ? { current_password } : {}) }),
+  }),
+};
+
+// ─── Wallet types ─────────────────────────────────────────────────────────────
+
+export interface WalletRecord {
+  id: string;
+  currency: 'USD' | 'NGN' | 'YUAN';
+  balance: string;
+  availableBalance: string;
+  isActive: boolean;
+  isLocked: boolean;
+  isVerified: boolean;
+  user: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    changpayId: string | null;
+    avatar: string | null;
+  } | null;
+  lastActivityAt: string | null;
+  createdAt: string;
+}
+
+export interface WalletStats {
+  total_wallets: number;
+  active_wallets: number;
+  locked_wallets: number;
+  by_currency: {
+    USD: { count: number; total_balance: string };
+    NGN: { count: number; total_balance: string };
+    YUAN: { count: number; total_balance: string };
+  };
+  today: {
+    transactions_count: number;
+    topups_total: Record<string, number>;
+    conversions_total: Record<string, number>;
+  };
+  transaction_volume: {
+    total: string;
+    by_currency: Record<string, number>;
+  };
+  recent_activity: {
+    action: 'credit' | 'debit';
+    amount: string;
+    currency: string;
+    label: string;
+    walletId: string;
+    user: string;
+    reference: string;
+    createdAt: string;
+  }[];
+}
+
+export interface CurrencyWalletData {
+  stats: {
+    total_wallets: number;
+    total_balance: string | number | null;
+    active_wallets: number;
+    locked_wallets: number;
+  };
+  wallets: MetaPaginatedResponse<WalletRecord>;
+}
+
+export interface TopupTransaction {
+  id: string | number;
+  reference: string;
+  amount: string;
+  currency: string;
+  status: string;
+  provider: string;
+  createdAt: string;
+  user?: { firstName: string; lastName: string; email: string; changpayId: string | null; avatar: string | null } | null;
+  wallet?: { id: string; currency: string } | null;
+}
+
+export interface SwapTransaction {
+  id: string | number;
+  reference: string;
+  fromCurrency: string;
+  toCurrency: string;
+  fromAmount: string;
+  toAmount: string;
+  rate: string;
+  status: string;
+  createdAt: string;
+  user?: { firstName: string; lastName: string; email: string; changpayId: string | null; avatar: string | null } | null;
+}
+
+
+export interface ConversionTransaction {
+  id: string | number;
+  reference: string;
+  fromCurrency: 'USD' | 'NGN' | 'YUAN';
+  toCurrency: 'USD' | 'NGN' | 'YUAN';
+  fromAmount?: string;
+  toAmount?: string;
+  senderAmount?: string;
+  receiverAmount?: string;
+  amount?: string;
+  convertedAmount?: string;
+  rate: string;
+  status: string;
+  createdAt: string;
+  user?: { firstName: string; lastName: string; email: string; changpayId: string | null; avatar: string | null } | null;
+}
+
+export interface LedgerEntry {
+  action: 'debit' | 'credit' | 'hold' | 'release';
+  amount: string;
+  balanceBefore: string;
+  balanceAfter: string;
+  wallet: {
+    id: string;
+    currency: string;
+    user: { firstName: string; lastName: string };
+  };
+  transaction: {
+    reference: string;
+    type: string;
+    status: string;
+  };
+  createdAt: string;
+}
+
+// ─── Wallet API ───────────────────────────────────────────────────────────────
+
+export const walletApi = {
+  getStats: () =>
+    authedRequest<{ status: boolean; message: string; data: WalletStats }>('/wallets/stats'),
+
+  getWallets: (params?: {
+    currency?: 'USD' | 'NGN' | 'YUAN';
+    is_active?: boolean;
+    is_locked?: boolean;
+    per_page?: number;
+    page?: number;
+    search?: string;
+  }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<WalletRecord> }>(
+      `/wallets${query}`
+    );
+  },
+
+  getWalletsByCurrency: (
+    currency: 'USD' | 'NGN' | 'YUAN',
+    params?: { is_locked?: boolean; per_page?: number; page?: number; search?: string }
+  ) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: CurrencyWalletData }>(
+      `/wallets/currency/${currency}${query}`
+    );
+  },
+
+  toggleLock: (walletId: string) =>
+    authedRequest<{ status: boolean; message: string; data: WalletRecord }>(
+      `/wallets/${walletId}/toggle-lock`,
+      { method: 'POST' }
+    ),
+
+  getLedger: (params?: { action?: string; date_from?: string; date_to?: string; page?: number; per_page?: number; search?: string; wallet_id?: string }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<LedgerEntry> | null }>(`/wallets/ledger${query}`);
+  },
+
+  getTopups: (params?: { currency?: string; date_from?: string; date_to?: string; per_page?: number; provider?: string; search?: string; status?: string; page?: number }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<TopupTransaction> | null }>(`/wallets/topups${query}`);
+  },
+
+  getSwaps: (params?: { currency?: string; date_from?: string; date_to?: string; from_currency?: string; to_currency?: string; per_page?: number; search?: string; status?: string; page?: number }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<SwapTransaction> | null }>(`/wallets/swaps${query}`);
+  },
+
+  getReconciliation: () =>
+    authedRequest<{ status: boolean; message: string; data: ReconciliationStatus }>('/wallets/reconciliation'),
+
+  runReconciliation: () =>
+    authedRequest<{ status: boolean; message: string; data: ReconciliationStatus }>(
+      '/wallets/reconciliation/run',
+      { method: 'POST' }
+    ),
+};
+
+export interface ReconciliationStatus {
+  is_reconciled: boolean;
+  total_wallets_checked: number;
+  discrepancies_count: number;
+  discrepancies: unknown[];
+  checked_at: string;
+  auto_job: {
+    schedule: string;
+    schedule_cron: string;
+    last_run_at: string;
+    last_status: string;
+    last_triggered_by: string;
+    next_run_at: string;
+  };
+}
+
+// ─── Roles types ──────────────────────────────────────────────────────────────
+
+export interface Role {
+  id: number;
+  name: string;
+  slug: string;
+  description: string;
+  is_system: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RoleAdminUser {
+  id: number;
+  first_name: string;
+  last_name: string;
+  email: string;
+  email_verified_at: string | null;
+  role_id: number | null;
+  is_active: boolean;
+  last_login_at: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  google_id: string | null;
+}
+
+// ─── Roles API ────────────────────────────────────────────────────────────────
+
+export const rolesApi = {
+  getRoles: () =>
+    authedRequest<{ status: boolean; message: string; data: Role[] }>('/roles'),
+
+  getPermissions: () =>
+    authedRequest<{ status: boolean; message: string; data: string[] }>('/roles/permissions'),
+
+  getAdmins: (page = 1) =>
+    authedRequest<{ status: boolean; message: string; data: PaginatedResponse<RoleAdminUser> }>(
+      `/roles/admins?page=${page}`
+    ),
+
+  createRole: (data: { name: string; description: string; permissions?: number[] }) =>
+    authedRequest<{ status: boolean; message: string; data: Role }>('/roles', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateRole: (id: number, data: { name: string; description: string; permissions?: number[] }) =>
+    authedRequest<{ status: boolean; message: string; data: Role }>(`/roles/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteRole: (id: number) =>
+    authedRequest<{ status: boolean; message: string; data: null }>(`/roles/${id}`, {
+      method: 'DELETE',
+    }),
+
+  assignRole: (adminId: string | number, roleId: number) =>
+    authedRequest<{ status: boolean; message: string; data: RoleAdminUser }>(
+      `/roles/admins/${adminId}/assign-role`,
+      { method: 'POST', body: JSON.stringify({ role_id: roleId }) }
+    ),
+};
+
+// ─── Banks & Payouts types ────────────────────────────────────────────────────
+
+export interface ChineseBank {
+  id: number;
+  name: string;
+  code: string;
+  iconUrl: string | null;
+  isActive: boolean;
+}
+
+export interface PaymentProviderStat {
+  provider: string;
+  total_accounts: string;
+  active_accounts: string;
+  total_transactions: number;
+  completed_transactions: number;
+  success_rate: number;
+}
+
+export interface PayoutTransaction {
+  id: number;
+  sourceType: string;
+  sourceId: number;
+  reference: string;
+  timestamp: string;
+  amount: string;
+  fee: string;
+  currency: string;
+  status: string;
+  provider: string;
+  user: { id: number; firstName: string; lastName: string; email: string; changpayId: string | null } | null;
+  bank: { code: string | null; name: string | null } | null;
+  account: { number: string | null; name: string | null } | null;
+  completedAt: string | null;
+}
+
+export interface HandshakeRecord {
+  id: number;
+  provider: string;
+  status: string;
+  responseTime: number | null;
+  message: string | null;
+  timestamp: string;
+}
+
+export interface PayoutStats {
+  total: string;
+  completed: string;
+  pending: string;
+  failed: string;
+  total_amount: string;
+}
+
+// ─── Banks & Payouts API ──────────────────────────────────────────────────────
+
+export const banksApi = {
+  // ── Chinese banks ──
+
+  /** GET /chinese-banks — all Chinese banks for PayToChina */
+  getChineseBanks: () =>
+    authedRequest<{ status: boolean; message: string; data: ChineseBank[] }>('/chinese-banks'),
+
+  /** POST /chinese-banks — add a new Chinese bank */
+  addChineseBank: (data: { name: string; code: string; is_active?: boolean }) =>
+    authedRequest<{ status: boolean; message: string; data: ChineseBank }>('/chinese-banks', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  /** PUT /chinese-banks/{id} — update a Chinese bank */
+  updateChineseBank: (id: number, data: { name: string; code: string; is_active?: boolean }) =>
+    authedRequest<{ status: boolean; message: string; data: ChineseBank }>(`/chinese-banks/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  /** DELETE /chinese-banks/{id} — soft-delete (sets is_active = false) */
+  deactivateChineseBank: (id: number) =>
+    authedRequest<{ status: boolean; message: string; data: null }>(`/chinese-banks/${id}`, {
+      method: 'DELETE',
+    }),
+
+  // ── Payment providers & bank stats ──
+
+  /** GET /banks/providers — stats per provider (Paystack, Paga, Fincra, Bridge) */
+  getProviderStats: () =>
+    authedRequest<{ status: boolean; message: string; data: PaymentProviderStat[] }>('/banks/providers'),
+
+  /** GET /banks/stats — DVA account counts grouped by bank name and provider */
+  getBankStats: () =>
+    authedRequest<{ status: boolean; message: string; data: unknown[] }>('/banks/stats'),
+
+  // ── Payout transactions ──
+
+  /** GET /banks/payouts — paginated withdrawal/payout transactions */
+  getPayouts: (params?: {
+    currency?: string;
+    status?: string;
+    provider?: string;
+    search?: string;
+    date_from?: string;
+    date_to?: string;
+    per_page?: number;
+    page?: number;
+  }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<PayoutTransaction> | null }>(
+      `/banks/payouts${query}`
+    );
+  },
+
+  /** GET /banks/payouts/stats — aggregate payout stats */
+  getPayoutStats: () =>
+    authedRequest<{ status: boolean; message: string; data: PayoutStats }>('/banks/payouts/stats'),
+
+  /** GET /banks/handshakes — bank health-check / handshake log */
+  getHandshakes: (params?: { provider?: string; status?: string; date_from?: string; date_to?: string; per_page?: number }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: HandshakeRecord[] | null }>(`/banks/handshakes${query}`);
+  },
+};
+
+// ─── KYC/KYB types ────────────────────────────────────────────────────────────
+
+export interface VerificationUser {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phoneNumber: string | null;
+  changpayId: string | null;
+}
+
+export interface KYCVerification {
+  id: number;
+  type: 'kyc';
+  status: 'pending' | 'approved' | 'rejected' | 'not_started';
+  documents: unknown[];
+  verificationData: unknown[];
+  rejectionReason: string | null;
+  verifiedAt: string | null;
+  submittedAt: string | null;
+  user: VerificationUser;
+}
+
+export interface KYBDirector {
+  id: number;
+  name: string;
+  email: string;
+  phoneNumber: string | null;
+  address: string | null;
+}
+
+export interface KYBVerification {
+  id: number;
+  type: 'kyb';
+  status: 'pending' | 'approved' | 'rejected' | 'not_started';
+  businessName: string;
+  businessType: string;
+  businessNature: string;
+  registrationNumber: string | null;
+  registrationDate: string | null;
+  address: string | null;
+  country: string | null;
+  state: string | null;
+  documents: unknown[];
+  verificationData: unknown[];
+  rejectionReason: string | null;
+  verifiedAt: string | null;
+  submittedAt: string | null;
+  user: VerificationUser;
+  directors: KYBDirector[];
+}
+
+export type AnyVerification = KYCVerification | KYBVerification;
+
+export interface VerificationStats {
+  kyc: { total: number; pending: number; approved: number; rejected: number };
+  kyb: { total: number; pending: number; approved: number; rejected: number };
+}
+
+// ─── KYC/KYB API ─────────────────────────────────────────────────────────────
+
+export const kycApi = {
+  /** GET /verifications — unified paginated list of all KYC + KYB */
+  getAll: (params?: {
+    type?: 'kyc' | 'kyb';
+    status?: string;
+    search?: string;
+    date_from?: string;
+    date_to?: string;
+    page?: number;
+    per_page?: number;
+  }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<AnyVerification> | null }>(
+      `/verifications${query}`
+    );
+  },
+
+  /** GET /verifications/stats */
+  getStats: () =>
+    authedRequest<{ status: boolean; message: string; data: VerificationStats }>(
+      '/verifications/stats'
+    ),
+
+  /** GET /verifications/kyc/{id} */
+  getKYCDetail: (id: string | number) =>
+    authedRequest<{ status: boolean; message: string; data: KYCVerification }>(
+      `/verifications/kyc/${id}`
+    ),
+
+  /** GET /verifications/kyb/{id} */
+  getKYBDetail: (id: string | number) =>
+    authedRequest<{ status: boolean; message: string; data: KYBVerification }>(
+      `/verifications/kyb/${id}`
+    ),
+
+  /** GET /kyb/pending */
+  getPendingKYB: () =>
+    authedRequest<{ status: boolean; message: string; data: KYBVerification[] | null }>(
+      '/kyb/pending'
+    ),
+
+  /** POST /kyb/{id}/approve */
+  approveKYB: (id: string | number) =>
+    authedRequest<{ status: boolean; message: string; data: KYBVerification }>(
+      `/kyb/${id}/approve`,
+      { method: 'POST' }
+    ),
+
+  /** POST /kyb/{id}/reject — body: { reason } */
+  rejectKYB: (id: string | number, reason: string) =>
+    authedRequest<{ status: boolean; message: string; data: KYBVerification }>(
+      `/kyb/${id}/reject`,
+      { method: 'POST', body: JSON.stringify({ reason }) }
+    ),
+
+  /** POST /kyb/{id}/request-resubmit — body: { reason } */
+  requestResubmit: (id: string | number, reason: string) =>
+    authedRequest<{ status: boolean; message: string; data: KYBVerification }>(
+      `/kyb/${id}/request-resubmit`,
+      { method: 'POST', body: JSON.stringify({ reason }) }
+    ),
+
+  /** POST /kyc/{kycId}/approve */
+  approveKYC: (kycId: string | number) =>
+    authedRequest<{ status: boolean; message: string; data: KYCVerification }>(
+      `/kyc/${kycId}/approve`,
+      { method: 'POST' }
+    ),
+
+  /** POST /kyc/{kycId}/reject — body: { reason } */
+  rejectKYC: (kycId: string | number, reason: string) =>
+    authedRequest<{ status: boolean; message: string; data: KYCVerification }>(
+      `/kyc/${kycId}/reject`,
+      { method: 'POST', body: JSON.stringify({ reason }) }
+    ),
+};
+
+// ─── Promotions types ─────────────────────────────────────────────────────────
+
+export interface PromotionCreator {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phoneNumber: string | null;
+  changpayId: string | null;
+}
+
+export interface Promotion {
+  id: number;
+  title: string;
+  description: string | null;
+  type: string;
+  status: string;
+  code: string | null;
+  discountValue: string;
+  minOrderAmount: string | null;
+  maxDiscount: string | null;
+  targetAudience: string | null;
+  bannerImage: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  usageCount: number;
+  usageLimit: number | null;
+  redemptions: number;
+  revenue: number;
+  createdAt: string;
+  creator: PromotionCreator | null;
+}
+
+export interface PromotionStats {
+  total: number;
+  active: number;
+  draft: number;
+  expired: number;
+  paused: number;
+  total_discount_value: number;
+  active_rate: number;
+}
+
+export type CreatePromotionPayload = {
+  title: string;
+  description?: string;
+  type: string;
+  discount_value: number;
+  min_order_amount?: number;
+  max_discount?: number;
+  target_audience?: string;
+  start_date: string;
+  end_date: string;
+  usage_limit?: number;
+  banner_image?: File;
+};
+
+// ─── Promotions API ───────────────────────────────────────────────────────────
+
+export const promotionsApi = {
+  /** GET /promotions — paginated list, filterable by status, type, search, date range */
+  getAll: (params?: {
+    status?: string;
+    type?: string;
+    search?: string;
+    date_from?: string;
+    date_to?: string;
+    page?: number;
+    per_page?: number;
+  }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<Promotion> | null }>(
+      `/promotions${query}`
+    );
+  },
+
+  /** GET /promotions/stats */
+  getStats: () =>
+    authedRequest<{ status: boolean; message: string; data: PromotionStats }>(
+      '/promotions/stats'
+    ),
+
+  /** GET /promotions/{id} */
+  getOne: (id: number) =>
+    authedRequest<{ status: boolean; message: string; data: Promotion }>(
+      `/promotions/${id}`
+    ),
+
+  /**
+   * POST /promotions — multipart/form-data (supports banner_image file upload)
+   * We build FormData here so the file is sent correctly.
+   */
+  create: (payload: CreatePromotionPayload) => {
+    const storeToken = useAuthStore.getState().token;
+    const token = storeToken ?? getAdminSessionToken() ?? '';
+
+    const form = new FormData();
+    Object.entries(payload).forEach(([k, v]) => {
+      if (v == null) return;
+      if (v instanceof File) form.append(k, v);
+      else form.append(k, String(v));
+    });
+
+    return fetch(`${BASE_URL}/promotions`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+        // Note: do NOT set Content-Type for multipart — browser sets it with boundary
+      },
+      body: form,
+    }).then(async (res) => {
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.message || `Request failed (${res.status})`);
+      return json as { status: boolean; message: string; data: Promotion };
+    });
+  },
+
+  /**
+   * PUT /promotions/{id} — multipart/form-data
+   */
+  update: (id: number, payload: Partial<CreatePromotionPayload>) => {
+    const storeToken = useAuthStore.getState().token;
+    const token = storeToken ?? getAdminSessionToken() ?? '';
+
+    const form = new FormData();
+    Object.entries(payload).forEach(([k, v]) => {
+      if (v == null) return;
+      if (v instanceof File) form.append(k, v);
+      else form.append(k, String(v));
+    });
+
+    return fetch(`${BASE_URL}/promotions/${id}`, {
+      method: 'PUT',
+      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      body: form,
+    }).then(async (res) => {
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.message || `Request failed (${res.status})`);
+      return json as { status: boolean; message: string; data: Promotion };
+    });
+  },
+
+  /** DELETE /promotions/{id} */
+  delete: (id: number) =>
+    authedRequest<{ status: boolean; message: string; data: null }>(
+      `/promotions/${id}`,
+      { method: 'DELETE' }
+    ),
+};
+
+// ─── Roles & Permissions types ────────────────────────────────────────────────
+
+export interface Permission {
+  id: number;
+  code: string;
+  action: string;
+  label: string;
+  description: string;
+}
+
+export interface PermissionGroup {
+  module: string;
+  label: string;
+  permissions: Permission[];
+}
+
+export interface RoleRecord {
+  id: number;
+  name: string;
+  slug: string;
+  description: string;
+  isSystem: boolean;
+  permissionsCount: number;
+  adminsCount: number;
+  permissions: Permission[];
+}
+
+export interface AdminUserRecord2 {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  role: RoleRecord | null;
+  createdAt: string;
+}
+
+// ─── Unified admin reconciliation API ───────────────────────────────────────
+
+export type ReconciliationSection =
+  | 'all' | 'dva' | 'deposits' | 'withdrawals' | 'ngn_withdrawals'
+  | 'yellowcard' | 'consolidation' | 'provisioning' | 'queues'
+  | 'webhooks' | 'readiness' | 'exceptions' | 'deployment';
+
+export interface AdminReconciliationPreview {
+  status: boolean;
+  message?: string;
+  data: Record<string, unknown>;
+}
+
+export interface AdminReconciliationFilters {
+  user_id?: string;
+  wallet_id?: string;
+  asset?: string;
+  network?: string;
+  from?: string;
+  to?: string;
+}
+
+export interface AdminReconciliationAuditEntry {
+  id: number;
+  actor_admin_id?: number | null;
+  action: string;
+  reason?: string | null;
+  before_state?: unknown;
+  after_state?: unknown;
+  created_at: string;
+  [key: string]: unknown;
+}
+
+export interface ReconciliationApplyPayload {
+  action: 'dva' | 'deposit' | 'operation' | 'ngn_withdrawal' | 'yellowcard'
+    | 'provisioning' | 'wallet' | 'treasury_payout' | 'treasury_movement'
+    | 'queue_retry' | 'webhook_replay';
+  id?: number;
+  wallet_id?: number;
+  provider?: 'nomba' | 'paystack' | 'paga' | 'palmpay';
+  reason: string;
+}
+
+export const adminReconciliationApi = {
+  preview: (section: ReconciliationSection = 'all', limit = 100, filters: AdminReconciliationFilters = {}) => {
+    const query = new URLSearchParams({ section, limit: String(limit) });
+    Object.entries(filters).forEach(([key, value]) => { if (value) query.set(key, value); });
+    return authedRequest<AdminReconciliationPreview>(`/reconciliation?${query.toString()}`);
+  },
+  audit: (limit = 100) =>
+    authedRequest<{ status: boolean; data: AdminReconciliationAuditEntry[] }>(`/reconciliation/audit?limit=${limit}`),
+  apply: (payload: ReconciliationApplyPayload) =>
+    authedRequest<{ status: boolean; message: string; data: Record<string, unknown> }>('/reconciliation/apply', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+};
+
+export interface AdminUserAuditEntry {
+  id: number;
+  actor_admin_id: number | null;
+  target_admin_id: number | null;
+  action: string;
+  reason: string | null;
+  before_state: Record<string, unknown> | null;
+  after_state: Record<string, unknown> | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  request_id: string | null;
+  created_at: string;
+}
+
+// ─── Roles API ────────────────────────────────────────────────────────────────
+
+export const rolesApi2 = {
+  /** GET /roles — all roles with permission and user counts */
+  getRoles: () =>
+    authedRequest<{ status: boolean; message: string; data: RoleRecord[] }>('/roles'),
+
+  /** POST /roles — create a role */
+  createRole: (data: { name: string; description: string; permissions: number[] }) =>
+    authedRequest<{ status: boolean; message: string; data: RoleRecord }>('/roles', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  /** GET /roles/permissions — all available permissions grouped by module */
+  getPermissions: () =>
+    authedRequest<{ status: boolean; message: string; data: PermissionGroup[] }>('/roles/permissions'),
+
+  /** GET /roles/admins — paginated admin users with assigned roles */
+  getAdmins: (params?: { search?: string; role?: string; page?: number }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<AdminUserRecord2> | null }>(
+      `/roles/admins${query}`
+    );
+  },
+
+  getAdmin: (id: number) =>
+    authedRequest<{ status: boolean; message: string; data: AdminUserRecord2 }>(`/roles/admins/${id}`),
+
+  createAdmin: (data: { first_name: string; last_name: string; email: string; password: string; password_confirmation: string; role_id: number; reason: string }) =>
+    authedRequest<{ status: boolean; message: string; data: AdminUserRecord2 }>('/roles/admins', { method: 'POST', body: JSON.stringify(data) }),
+
+  updateAdmin: (id: number, data: { first_name?: string; last_name?: string; email?: string; role_id?: number; reason: string }) =>
+    authedRequest<{ status: boolean; message: string; data: AdminUserRecord2 }>(`/roles/admins/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  setAdminStatus: (id: number, reason: string) =>
+    authedRequest<{ status: boolean; message: string; data: AdminUserRecord2 }>(`/roles/admins/${id}/status`, { method: 'PATCH', body: JSON.stringify({ reason }) }),
+
+  deleteAdmin: (id: number, reason: string) =>
+    authedRequest<{ status: boolean; message: string; data: null }>(`/roles/admins/${id}`, { method: 'DELETE', body: JSON.stringify({ reason }) }),
+
+  resetAdminPassword: (id: number, data: { password: string; password_confirmation: string; reason: string }) =>
+    authedRequest<{ status: boolean; message: string; data: AdminUserRecord2 }>(`/roles/admins/${id}/reset-password`, { method: 'POST', body: JSON.stringify(data) }),
+
+  resetAdminTwoFactor: (id: number, method: 'email' | 'totp' | 'all', reason: string) =>
+    authedRequest<{ status: boolean; message: string; data: AdminUserRecord2 }>(`/roles/admins/${id}/reset-2fa`, { method: 'POST', body: JSON.stringify({ method, reason }) }),
+
+  revokeAdminSessions: (id: number, reason: string) =>
+    authedRequest<{ status: boolean; message: string; data: null }>(`/roles/admins/${id}/revoke-sessions`, { method: 'POST', body: JSON.stringify({ reason }) }),
+
+  getAdminAudit: async (id: number) => {
+    const response = await authedRequest<{ status: boolean; message: string; data: PaginatedResponse<AdminUserAuditEntry> | AdminUserAuditEntry[] | null }>(`/roles/admins/${id}/audit`);
+    const data = Array.isArray(response.data) ? response.data : response.data?.data ?? [];
+    return { ...response, data };
+  },
+
+  /** GET /roles/{id} — single role details */
+  getRole: (id: number) =>
+    authedRequest<{ status: boolean; message: string; data: RoleRecord }>(`/roles/${id}`),
+
+  /** PUT /roles/{id} — update a role */
+  updateRole: (id: number, data: { name: string; description: string; permissions: number[] }) =>
+    authedRequest<{ status: boolean; message: string; data: RoleRecord }>(`/roles/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  /** DELETE /roles/{id} — permanently delete (system roles cannot be deleted) */
+  deleteRole: (id: number) =>
+    authedRequest<{ status: boolean; message: string; data: null }>(`/roles/${id}`, {
+      method: 'DELETE',
+    }),
+
+  /** POST /roles/admins/{id}/assign-role — assign a role to an admin user */
+  assignRole: (adminId: number, roleId: number) =>
+    authedRequest<{ status: boolean; message: string; data: AdminUserRecord2 }>(
+      `/roles/admins/${adminId}/assign-role`,
+      { method: 'POST', body: JSON.stringify({ role_id: roleId }) }
+    ),
+};
+
+// ─── Support & Disputes types ─────────────────────────────────────────────────
+
+export interface TicketResponse {
+  message: string;
+  fromAdmin: boolean;
+  createdAt: string;
+}
+
+export interface SupportTicket {
+  id: number;
+  subject: string;
+  message: string;
+  category: string | null;
+  priority: string;
+  status: string;
+  closedAt: string | null;
+  createdAt: string;
+  responses: TicketResponse[];
+  // user info may be nested depending on backend
+  user?: { id: number; firstName: string; lastName: string; email: string; changpayId: string | null } | null;
+}
+
+export interface TicketStats {
+  total: number;
+  open: number;
+  in_progress: number;
+  resolved: number;
+  closed: number;
+}
+
+export interface Dispute {
+  id: number;
+  type: string;
+  subject: string;
+  description: string;
+  status: string;
+  resolution: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  user?: { id: number; firstName: string; lastName: string; email: string; changpayId: string | null } | null;
+}
+
+export interface DisputeStats {
+  total: number;
+  open: number;
+  under_review: number;
+  resolved: number;
+  rejected: number;
+}
+
+// ─── Support API ──────────────────────────────────────────────────────────────
+
+export const supportApi = {
+  // ── Tickets ──
+
+  /** GET /support/tickets — filterable by status, category, priority, search, date range */
+  getTickets: (params?: {
+    status?: string;
+    category?: string;
+    priority?: string;
+    search?: string;
+    date_from?: string;
+    date_to?: string;
+    page?: number;
+    per_page?: number;
+  }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<SupportTicket> | null }>(
+      `/support/tickets${query}`
+    );
+  },
+
+  /** GET /support/tickets/stats */
+  getTicketStats: () =>
+    authedRequest<{ status: boolean; message: string; data: TicketStats }>(
+      '/support/tickets/stats'
+    ),
+
+  /** GET /support/tickets/{id} — full ticket with conversation thread */
+  getTicket: (id: number) =>
+    authedRequest<{ status: boolean; message: string; data: SupportTicket }>(
+      `/support/tickets/${id}`
+    ),
+
+  /** POST /support/tickets/{id}/respond — body: { message } */
+  respondToTicket: (id: number, message: string) =>
+    authedRequest<{ status: boolean; message: string; data: TicketResponse }>(
+      `/support/tickets/${id}/respond`,
+      { method: 'POST', body: JSON.stringify({ message }) }
+    ),
+
+  /** PATCH /support/tickets/{id}/status — body: { status } */
+  updateTicketStatus: (id: number, status: string) =>
+    authedRequest<{ status: boolean; message: string; data: SupportTicket }>(
+      `/support/tickets/${id}/status`,
+      { method: 'PATCH', body: JSON.stringify({ status }) }
+    ),
+
+  // ── Disputes ──
+
+  /** GET /support/disputes — filterable by status, type, search, date range */
+  getDisputes: (params?: {
+    status?: string;
+    type?: string;
+    search?: string;
+    date_from?: string;
+    date_to?: string;
+    page?: number;
+    per_page?: number;
+  }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: PaginatedResponse<Dispute> | null }>(
+      `/support/disputes${query}`
+    );
+  },
+
+  /** GET /support/disputes/stats */
+  getDisputeStats: () =>
+    authedRequest<{ status: boolean; message: string; data: DisputeStats }>(
+      '/support/disputes/stats'
+    ),
+
+  /** GET /support/disputes/{id} */
+  getDispute: (id: number) =>
+    authedRequest<{ status: boolean; message: string; data: Dispute }>(
+      `/support/disputes/${id}`
+    ),
+
+  /** POST /support/disputes/{id}/resolve — body: { status: 'resolved'|'rejected', resolution } */
+  resolveDispute: (id: number, status: 'resolved' | 'rejected', resolution: string) =>
+    authedRequest<{ status: boolean; message: string; data: Dispute }>(
+      `/support/disputes/${id}/resolve`,
+      { method: 'POST', body: JSON.stringify({ status, resolution }) }
+    ),
+};
+
+// ─── Transactions types ───────────────────────────────────────────────────────
+
+export interface Transaction {
+  id: string | number;
+  publicId?: string | null;
+  reference: string;
+  type: string;
+  category: string;
+  status: string;
+  amount: string;
+  fee: string;
+  currency: string;
+  description: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  // user/wallet info may be present on detail endpoint
+  user?: { id: number; firstName: string; lastName: string; email: string; changpayId: string | null } | null;
+  wallet?: { id: number; currency: string; uid: string } | null;
+}
+
+export interface TransactionStats {
+  total: number;
+  completed: number;
+  pending: number;
+  failed: number;
+}
+
+export interface SellCryptoTransaction {
+  reference: string | number;
+  id: string | number;
+  publicId?: string | null;
+  status: string;
+  user?: { id: number; firstName: string; lastName: string; email: string; changpayId: string | null; avatarUrl?: string | null } | null;
+  cryptoCurrency: string;
+  cryptoNetwork: string;
+  cryptoAmount: string;
+  fiatCurrency: string;
+  fiatAmount: string;
+  rate: string;
+  fee: string;
+  destinationType: string;
+  targetCurrency: string;
+  targetAmount: string;
+  depositAddress: string;
+  depositNetwork: string;
+  depositExpiresAt: string | null;
+  estimatedPayoutSeconds: number;
+  completedAt: string | null;
+  createdAt: string;
+}
+
+export interface SellCryptoStats {
+  total: number;
+  completed: number;
+  pending: number;
+  total_fiat_amount: string | null;
+}
+
+export interface PayToChinaSupplierBank {
+  id: number;
+  name: string;
+  code: string;
+  iconUrl: string | null;
+  isActive: boolean;
+}
+
+export interface PayToChinaSupplier {
+  id: number;
+  name: string;
+  accountNumber: string;
+  phoneNumber: string;
+  payoutMethod: string;
+  bank: PayToChinaSupplierBank | null;
+  createdAt: string;
+}
+
+export interface PayToChinaTransaction {
+  id: string | number;
+  publicId?: string | null;
+  reference: string;
+  direction?: string;
+  status: string;
+  amount: string;
+  amountReceived: string;
+  fee: string;
+  currency: string;
+  exchangeRate: string;
+  payoutMethod: string;
+  completedAt: string | null;
+  createdAt: string;
+  supplier: PayToChinaSupplier | null;
+}
+
+export interface PayToChinaStats {
+  total: number;
+  completed: number;
+  pending: number;
+  failed: number;
+}
+
+export interface ConversionStats {
+  total_count: string;
+  total_volume: string;
+  by_source_currency: { USD: string; NGN: string; YUAN: string };
+}
+
+// ─── Transactions API ─────────────────────────────────────────────────────────
+
+export const transactionsApi = {
+  // ── Platform transactions ──
+
+  /** GET /transactions — all wallet transactions (deposits, withdrawals, transfers) */
+  getAll: (params?: {
+    status?: string;
+    type?: string;
+    currency?: string;
+    search?: string;
+    date_from?: string;
+    date_to?: string;
+    page?: number;
+    per_page?: number;
+  }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<Transaction> | null }>(`/transactions${query}`).then((response) => ({
+      ...response,
+      data: response.data ? normalizePage(response.data) : null,
+    }));
+  },
+
+  /** GET /transactions/stats */
+  getStats: () =>
+    authedRequest<{ status: boolean; message: string; data: TransactionStats }>(
+      '/transactions/stats'
+    ),
+
+  /** GET /transactions/{id} */
+  getOne: async (id: string | number) =>
+    authedRequest<{ status: boolean; message: string; data: Transaction }>(
+      `/transactions/${requireIdentifier(id, 'transaction')}`
+    ),
+
+  /** POST /transactions/{id}/approve */
+  approve: (id: string | number) =>
+    authedRequest<{ status: boolean; message: string; data: Transaction }>(
+      `/transactions/${requireIdentifier(id, 'transaction')}/approve`,
+      { method: 'POST' }
+    ),
+
+  /** POST /transactions/{id}/reject */
+  reject: (id: string | number) =>
+    authedRequest<{ status: boolean; message: string; data: Transaction }>(
+      `/transactions/${requireIdentifier(id, 'transaction')}/reject`,
+      { method: 'POST' }
+    ),
+
+  markManualReview: (id: string | number) =>
+    authedRequest<{ status: boolean; message: string; data: Transaction }>(
+      `/transactions/${requireIdentifier(id, 'transaction')}/manual-review`,
+      { method: 'POST' }
+    ),
+
+  downloadReceipt: async (id: string | number) => {
+    const storeToken = useAuthStore.getState().token;
+    const token = storeToken ?? getAdminSessionToken();
+    const res = await fetch(`${BASE_URL}/transactions/${requireIdentifier(id, 'transaction')}/receipt`, {
+      headers: { Accept: 'application/pdf', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    const contentType = res.headers.get('content-type') ?? '';
+    if (!res.ok || contentType.includes('application/json')) {
+      // Backend returned an error body (often 200 + JSON) instead of a real PDF —
+      // surface the real message instead of silently "downloading" a corrupt file.
+      let message = `Failed to download receipt (${res.status})`;
+      try {
+        const body = await res.json();
+        if (body?.message) message = body.message;
+      } catch { /* body wasn't JSON either — keep the generic message */ }
+      throw new Error(message);
+    }
+    return res.blob();
+  },
+
+  // ── Sell Crypto ──
+
+  /** GET /sell-crypto */
+  getSellCrypto: (params?: {
+    status?: string;
+    search?: string;
+    date_from?: string;
+    date_to?: string;
+    page?: number;
+    per_page?: number;
+  }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<SellCryptoTransaction> | null }>(`/sell-crypto${query}`).then((response) => ({
+      ...response,
+      data: response.data ? normalizePage(response.data) : null,
+    }));
+  },
+
+  /** GET /sell-crypto/stats */
+  getSellCryptoStats: () =>
+    authedRequest<{ status: boolean; message: string; data: SellCryptoStats }>(
+      '/sell-crypto/stats'
+    ),
+
+  /** GET /sell-crypto/{id} */
+  getSellCryptoOne: (id: string | number) =>
+    authedRequest<{ status: boolean; message: string; data: SellCryptoTransaction }>(
+      `/sell-crypto/${requireIdentifier(id, 'sell crypto transaction')}`
+    ),
+
+  // ── Pay to China ──
+
+  /** GET /pay-to-china */
+  getPayToChina: (params?: {
+    status?: string;
+    search?: string;
+    date_from?: string;
+    date_to?: string;
+    page?: number;
+    per_page?: number;
+  }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<PayToChinaTransaction> | null }>(`/pay-to-china${query}`).then((response) => ({
+      ...response,
+      data: response.data ? normalizePage(response.data) : null,
+    }));
+  },
+
+  /** GET /pay-to-china/stats */
+  getPayToChinaStats: () =>
+    authedRequest<{ status: boolean; message: string; data: PayToChinaStats }>(
+      '/pay-to-china/stats'
+    ),
+
+  /** GET /pay-to-china/{id} */
+  getPayToChinaOne: (id: string | number) =>
+    authedRequest<{ status: boolean; message: string; data: PayToChinaTransaction }>(
+      `/pay-to-china/${requireIdentifier(id, 'Pay to China transaction')}`
+    ),
+
+  // ── Conversions ──
+
+  /** GET /conversions */
+  getConversions: (params?: {
+    status?: string;
+    search?: string;
+    date_from?: string;
+    date_to?: string;
+    page?: number;
+    per_page?: number;
+  }) => {
+    const entries = Object.entries(params ?? {})
+      .filter(([, v]) => v != null && v !== '')
+      .map(([k, v]) => [k, typeof v === 'boolean' ? (v ? '1' : '0') : String(v)]) as [string, string][];
+    const query = entries.length ? '?' + new URLSearchParams(entries).toString() : '';
+    return authedRequest<{ status: boolean; message: string; data: MetaPaginatedResponse<Transaction> | null }>(
+      `/conversions${query}`
+    ).then((response) => ({
+      ...response,
+      data: response.data ? normalizePage(response.data) : null,
+    }));
+  },
+
+  /** GET /conversions/stats */
+  getConversionStats: () =>
+    authedRequest<{ status: boolean; message: string; data: ConversionStats }>(
+      '/conversions/stats'
+    ),
+
+  /** GET /conversions/{id} */
+  getConversionOne: (id: string | number) =>
+    authedRequest<{ status: boolean; message: string; data: Transaction }>(
+      `/conversions/${requireIdentifier(id, 'conversion')}`
+    ),
+};

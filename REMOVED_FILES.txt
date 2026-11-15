@@ -1,0 +1,7 @@
+Removed local mock auth routes so the frontend uses the backend API only:
+app/api/auth/login/route.ts
+app/api/auth/logout/route.ts
+app/api/auth/register/route.ts
+app/api/auth/resend-otp/route.ts
+app/api/auth/setup-pin/route.ts
+app/api/auth/verify/route.ts

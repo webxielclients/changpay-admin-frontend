@@ -1,0 +1,727 @@
+'use client';
+
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useAuthStore } from '@/store/authStore';
+import { kycApi } from '@/lib/api/client';
+import type { AnyVerification, KYCVerification, KYBVerification, VerificationStats } from '@/lib/api/client';
+import Sidebar from '@/components/Sidebar';
+import DashboardHeader from '@/components/DashboardHeader';
+
+const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif" };
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+type TypeFilter   = 'all' | 'kyc' | 'kyb';
+type StatusFilter = 'all' | 'pending' | 'approved' | 'rejected' | 'under_review';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function getInitials(v: AnyVerification) {
+  if (v.type === 'kyb') return (v as KYBVerification).businessName?.slice(0, 2).toUpperCase() ?? '??';
+  const u = v.user;
+  if (!u) return '??';
+  return `${u.firstName?.[0] ?? ''}${u.lastName?.[0] ?? ''}`.toUpperCase() || '??';
+}
+
+function getDisplayName(v: AnyVerification) {
+  if (v.type === 'kyb') return (v as KYBVerification).businessName ?? v.user?.email ?? '—';
+  if (!v.user) return '—';
+  return [v.user.firstName, v.user.lastName].filter(Boolean).join(' ') || v.user.email || '—';
+}
+
+function formatDate(s: string | null | undefined) {
+  if (!s) return '—';
+  try { return new Date(s).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }); }
+  catch { return s; }
+}
+
+type VerificationIdentifier = string | number;
+
+function getVerificationId(v: AnyVerification): VerificationIdentifier {
+  const record = v as unknown as {
+    publicId?: VerificationIdentifier;
+    public_id?: VerificationIdentifier;
+    id?: VerificationIdentifier;
+  };
+
+  return record.publicId ?? record.public_id ?? record.id ?? '';
+}
+
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
+function Skeleton({ className }: { className?: string }) {
+  return <div className={`animate-pulse bg-gray-100 rounded-lg ${className ?? ''}`} />;
+}
+
+// ─── Risk badge ───────────────────────────────────────────────────────────────
+function RiskBadge({ status }: { status: string }) {
+  const isHigh = status === 'rejected';
+  return (
+    <span className="inline-flex px-2 py-0.5 rounded text-xs font-bold" style={{ color: isHigh ? '#FF756B' : '#009F51' }}>
+      {isHigh ? 'HIGH RISK' : 'LOW RISK'}
+    </span>
+  );
+}
+
+// ─── Status badge ─────────────────────────────────────────────────────────────
+function StatusBadge({ status }: { status: string }) {
+  const s = status?.toLowerCase().replace('-', '_');
+  const map: Record<string, { bg: string; text: string; label: string }> = {
+    pending:       { bg: '#D0B229', text: '#ffffff', label: 'PENDING' },
+    under_review:  { bg: '#0274D8', text: '#ffffff', label: 'UNDER REVIEW' },
+    'under-review':{ bg: '#0274D8', text: '#ffffff', label: 'UNDER REVIEW' },
+    approved:      { bg: '#009F51', text: '#ffffff', label: 'APPROVED' },
+    rejected:      { bg: '#FF756B', text: '#ffffff', label: 'REJECTED' },
+    not_started:   { bg: '#F8F9FA', text: '#6B7280', label: 'NOT STARTED' },
+  };
+  const style = map[s] ?? { bg: '#F8F9FA', text: '#6B7280', label: status.toUpperCase() };
+  return (
+    <span
+      className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap"
+      style={{ backgroundColor: style.bg, color: style.text }}
+    >
+      {style.label}
+    </span>
+  );
+}
+
+// ─── Filter pill button ────────────────────────────────────────────────────────
+function FilterPill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap"
+      style={active ? { backgroundColor: '#009F51', color: '#ffffff' } : { backgroundColor: '#F8F9FA', color: '#6B7280' }}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ─── Verification card avatar ─────────────────────────────────────────────────
+function VerificationAvatar({ v }: { v: AnyVerification }) {
+  const isKYB = v.type === 'kyb';
+  return (
+    <div
+      className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0"
+      style={{ backgroundColor: isKYB ? '#F3E8FF' : '#DBEAFE' }}
+    >
+      {isKYB ? (
+        <svg className="w-6 h-6" style={{ color: '#9810FA' }} fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+        </svg>
+      ) : (
+        <svg className="w-6 h-6" style={{ color: '#155DFC' }} fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+        </svg>
+      )}
+    </div>
+  );
+}
+
+// ─── Review Modal (slide-in from right) ───────────────────────────────────────
+interface ReviewModalProps {
+  verification: AnyVerification;
+  onClose: () => void;
+  onApprove: () => void;
+  onReject: (reason: string) => void;
+  onResubmit: (reason: string) => void;
+  isActing: boolean;
+}
+
+function ReviewModal({ verification, onClose, onApprove, onReject, onResubmit, isActing }: ReviewModalProps) {
+  const [rejectReason,      setRejectReason]      = useState('');
+  const [resubmitReason,    setResubmitReason]    = useState('');
+  const [showRejectInput,   setShowRejectInput]   = useState(false);
+  const [showResubmitInput, setShowResubmitInput] = useState(false);
+  const isKYB = verification.type === 'kyb';
+  const kyb   = isKYB ? (verification as KYBVerification) : null;
+
+  const isApproved = verification.status === 'approved';
+  const isRejected = verification.status === 'rejected';
+
+  // Field row component
+  const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div className="rounded-xl px-5 py-4" style={{ backgroundColor: '#F8F9FA' }}>
+      <p className="text-sm text-gray-400 mb-1.5">{label}</p>
+      <div className="text-base font-bold text-gray-900">{children}</div>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-end" style={FONT}>
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+
+      <div className="relative w-full max-w-md m-4">
+        {/* Close button — floating circle anchored to the modal itself */}
+        <button
+          onClick={onClose}
+          className="absolute -left-16 top-2 z-10 w-12 h-12 flex items-center justify-center bg-white hover:bg-gray-100 rounded-full transition-colors shadow-lg"
+        >
+          <svg className="w-5 h-5 text-gray-900" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+
+        <div className="bg-white max-h-[calc(100vh-2rem)] rounded-3xl overflow-y-auto shadow-2xl flex flex-col">
+
+        <div className="px-6 pt-6">
+          <h2 style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif", fontWeight: 400, fontSize: 24, lineHeight: '100%', letterSpacing: '0%', color: '#1A1D1F' }}>
+            {getDisplayName(verification)}
+          </h2>
+          <p style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif", fontWeight: 400, fontSize: 16, lineHeight: '24px', letterSpacing: '0px', color: '#6A7377' }} className="mt-1">
+            {verification.type === 'kyc'
+              ? `KYC-${String(getVerificationId(verification)).padStart(3, '0')}`
+              : `KYB-${String(getVerificationId(verification)).padStart(3, '0')}`}
+          </p>
+        </div>
+
+        <div className="flex-1 p-6 space-y-3 overflow-y-auto">
+          {/* Type */}
+          <Field label="Type">
+            {isKYB ? 'KYB' : 'KYC'}
+          </Field>
+
+          {/* Status */}
+          <Field label="Status">
+            <div className="flex items-center justify-between">
+              <span>{verification.status.charAt(0).toUpperCase() + verification.status.slice(1).replace('-', ' ')}</span>
+              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+              </svg>
+            </div>
+          </Field>
+
+          {/* Risk Level */}
+          <Field label="Risk Level">
+            <span style={{ color: verification.status === 'rejected' ? '#FF756B' : '#009F51' }}>
+              {verification.status === 'rejected' ? 'HIGH' : 'LOW'}
+            </span>
+          </Field>
+
+          {/* Country */}
+          <Field label="Country">
+            {(verification as any).country ?? kyb?.country ?? 'Nigeria'}
+          </Field>
+
+          {/* Rejection reason if present */}
+          {verification.rejectionReason && (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              <p className="text-xs text-gray-400 mb-1">Rejection Reason</p>
+              <p className="text-sm text-red-700">{verification.rejectionReason}</p>
+            </div>
+          )}
+
+          {/* KYB extras */}
+          {isKYB && kyb?.businessType && (
+            <Field label="Business Type">
+              {kyb.businessType.replace(/_/g, ' ')}
+            </Field>
+          )}
+
+          {/* Directors */}
+          {isKYB && kyb && (kyb.directors?.length ?? 0) > 0 && (
+            <div>
+              <p className="text-sm font-bold text-gray-900 mb-2">Directors</p>
+              <div className="space-y-2">
+                {kyb.directors.map((d) => (
+                  <div key={d.id} className="border border-gray-200 rounded-xl px-4 py-3">
+                    <p className="text-sm font-semibold text-gray-900">{d.name}</p>
+                    <p className="text-xs text-gray-400">{d.email}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Documents */}
+          <div>
+            <p className="text-lg font-bold text-gray-900 mb-3">Documents</p>
+            {(verification.documents?.length ?? 0) === 0 ? (
+              <p className="text-sm text-gray-400">No documents submitted</p>
+            ) : (
+              <div className="space-y-2">
+                {verification.documents!.map((doc, i) => (
+                  <div key={i} className="flex items-center justify-between rounded-xl px-5 py-4" style={{ backgroundColor: '#F8F9FA' }}>
+                    <div className="flex items-center gap-2">
+                      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                      </svg>
+                      <span className="text-sm text-gray-700">Document {i + 1}</span>
+                    </div>
+                    {typeof doc === 'string' && (
+                      <a href={doc} target="_blank" rel="noopener noreferrer"
+                        className="text-sm font-semibold hover:opacity-80" style={{ color: '#009F51' }}>
+                        View
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Reject reason textarea */}
+          {showRejectInput && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Reason for Rejection *</label>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Provide a clear reason..."
+                rows={3}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-400"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Action buttons */}
+        {!isApproved && (
+          <div className="p-5 border-t border-gray-100 space-y-3">
+            {/* Reject reason input */}
+            {showRejectInput && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Reason for Rejection *</label>
+                <textarea
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="Provide a clear reason..."
+                  rows={3}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-400"
+                />
+              </div>
+            )}
+            {/* Resubmit reason input */}
+            {showResubmitInput && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Reason for Resubmission *</label>
+                <textarea
+                  value={resubmitReason}
+                  onChange={(e) => setResubmitReason(e.target.value)}
+                  placeholder="Explain what needs to be corrected..."
+                  rows={3}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+            )}
+            {!showRejectInput && !showResubmitInput ? (
+              <div className="flex gap-3">
+                <button onClick={onApprove} disabled={isActing} className="flex-1 rounded-lg text-sm font-bold transition-colors disabled:opacity-50" style={{ height: 48, backgroundColor: '#009F51', color: '#ffffff' }}>
+                  {isActing ? 'Processing...' : 'Approve'}
+                </button>
+                <button onClick={() => setShowRejectInput(true)} disabled={isActing} className="flex-1 rounded-lg text-sm font-bold transition-colors disabled:opacity-50" style={{ height: 48, backgroundColor: '#FF756B', color: '#ffffff' }}>
+                  Reject
+                </button>
+                <button onClick={() => setShowResubmitInput(true)} disabled={isActing} className="flex-1 rounded-lg text-sm font-bold transition-colors disabled:opacity-50 whitespace-nowrap" style={{ height: 48, backgroundColor: '#FFE5E2', color: '#FF756B' }}>
+                  Request Resubmit
+                </button>
+              </div>
+            ) : showRejectInput ? (
+              <div className="flex gap-3">
+                <button onClick={() => setShowRejectInput(false)} className="flex-1 border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors" style={{ height: 48 }}>Cancel</button>
+                <button onClick={() => onReject(rejectReason)} disabled={isActing || !rejectReason.trim()} className="flex-1 rounded-lg text-sm font-bold transition-colors disabled:opacity-50" style={{ height: 48, backgroundColor: '#FF756B', color: '#ffffff' }}>
+                  {isActing ? 'Rejecting...' : 'Confirm Reject'}
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-3">
+                <button onClick={() => setShowResubmitInput(false)} className="flex-1 border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors" style={{ height: 48 }}>Cancel</button>
+                <button onClick={() => onResubmit(resubmitReason)} disabled={isActing || !resubmitReason.trim()} className="flex-1 rounded-lg text-sm font-bold transition-colors disabled:opacity-50" style={{ height: 48, backgroundColor: '#FFDA44', color: '#1A1D1F' }}>
+                  {isActing ? 'Sending...' : 'Send Request'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  PAGE
+// ═════════════════════════════════════════════════════════════════════════════
+function KYCVerificationPageInner() {
+  const { isAuthenticated } = useAuthStore();
+  const searchParams = useSearchParams();
+
+  const [typeFilter,   setTypeFilter]   = useState<TypeFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
+    const fromUrl = searchParams.get('status');
+    const valid: StatusFilter[] = ['all', 'pending', 'approved', 'rejected'];
+    return (valid as string[]).includes(fromUrl ?? '') ? (fromUrl as StatusFilter) : 'all';
+  });
+  const [currentPage,  setCurrentPage]  = useState(1);
+
+  const [verifications, setVerifications] = useState<AnyVerification[]>([]);
+  const [stats,         setStats]         = useState<VerificationStats | null>(null);
+  const [pagination,    setPagination]    = useState<{ total: number; last_page: number; from: number; to: number } | null>(null);
+  const [isLoading,     setIsLoading]     = useState(true);
+  const [loadingStats,  setLoadingStats]  = useState(true);
+  const [error,         setError]         = useState<string | null>(null);
+
+  const [selectedVerification, setSelectedVerification] = useState<AnyVerification | null>(null);
+  const [isActing,             setIsActing]             = useState(false);
+  const [actionError,          setActionError]          = useState<string | null>(null);
+
+  // Guards against out-of-order responses: if the user switches filters quickly,
+  // an older, slower request could resolve after a newer one and overwrite it
+  // with stale data. Only the response matching the latest request is applied.
+  const fetchSeq = useRef(0);
+
+  const fetchVerifications = useCallback(async (page: number, type: TypeFilter, status: StatusFilter) => {
+    const seq = ++fetchSeq.current;
+    try {
+      setIsLoading(true);
+      setError(null);
+      const res = await kycApi.getAll({
+        page, per_page: 8,
+        type:   type   !== 'all' ? type   : undefined,
+        status: status !== 'all' ? status : undefined,
+      });
+      if (seq !== fetchSeq.current) return; // superseded by a newer request
+      if (res.status) {
+        const d = res.data as any;
+        if (d && 'data' in d) {
+          setVerifications(d.data ?? []);
+          const meta = d.meta ?? d;
+          setPagination({ total: meta.total, last_page: meta.last_page, from: meta.from, to: meta.to });
+        } else {
+          setVerifications([]);
+          setPagination(null);
+        }
+      } else {
+        // Request completed but the backend rejected it (e.g. an invalid filter value) —
+        // don't leave the previous filter's results on screen looking like a match.
+        setVerifications([]);
+        setPagination(null);
+        setError(res.message || 'Failed to load verifications');
+      }
+    } catch (err) {
+      if (seq !== fetchSeq.current) return;
+      setVerifications([]);
+      setPagination(null);
+      setError(err instanceof Error ? err.message : 'Failed to load verifications');
+    } finally {
+      if (seq === fetchSeq.current) setIsLoading(false);
+    }
+  }, []);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      setLoadingStats(true);
+      const res = await kycApi.getStats();
+      if (res.status) setStats(res.data);
+    } catch { /* silent */ } finally {
+      setLoadingStats(false);
+    }
+  }, []);
+
+  useEffect(() => { if (isAuthenticated) fetchStats(); }, [isAuthenticated, fetchStats]);
+  useEffect(() => {
+    if (isAuthenticated) fetchVerifications(currentPage, typeFilter, statusFilter);
+  }, [isAuthenticated, currentPage, typeFilter, statusFilter, fetchVerifications]);
+
+  if (!isAuthenticated) return null;
+
+  const handleApprove = async () => {
+    if (!selectedVerification) return;
+    try {
+      setIsActing(true);
+      setActionError(null);
+      const verificationId = getVerificationId(selectedVerification);
+      if (selectedVerification.type === 'kyb') await kycApi.approveKYB(verificationId);
+      else await kycApi.approveKYC(verificationId);
+      setVerifications((prev) => prev.map((v) => getVerificationId(v) === verificationId ? { ...v, status: 'approved' as const } : v));
+      setSelectedVerification(null);
+      fetchStats();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Action failed');
+    } finally {
+      setIsActing(false);
+    }
+  };
+
+  const handleReject = async (reason: string) => {
+    if (!selectedVerification || !reason.trim()) return;
+    try {
+      setIsActing(true);
+      setActionError(null);
+      const verificationId = getVerificationId(selectedVerification);
+      if (selectedVerification.type === 'kyb') await kycApi.rejectKYB(verificationId, reason);
+      else await kycApi.rejectKYC(verificationId, reason);
+      setVerifications((prev) => prev.map((v) => getVerificationId(v) === verificationId ? { ...v, status: 'rejected' as const, rejectionReason: reason } : v));
+      setSelectedVerification(null);
+      fetchStats();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Action failed');
+    } finally {
+      setIsActing(false);
+    }
+  };
+
+  const handleResubmit = async (reason: string) => {
+    if (!selectedVerification || !reason.trim()) return;
+    try {
+      setIsActing(true);
+      setActionError(null);
+      const verificationId = getVerificationId(selectedVerification);
+      await kycApi.requestResubmit(verificationId, reason);
+      setVerifications((prev) => prev.map((v) => getVerificationId(v) === verificationId ? { ...v, status: 'not_started' as const } : v));
+      setSelectedVerification(null);
+      fetchStats();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Resubmit request failed');
+    } finally {
+      setIsActing(false);
+    }
+  };
+
+  const totalPages  = pagination?.last_page ?? 1;
+  const pageNumbers = Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+    if (totalPages <= 5) return i + 1;
+    if (currentPage <= 3) return i + 1;
+    if (currentPage >= totalPages - 2) return totalPages - 4 + i;
+    return currentPage - 2 + i;
+  });
+
+  const TYPE_FILTERS: { id: TypeFilter; label: string; icon?: React.ReactNode }[] = [
+    { id: 'all', label: 'All' },
+    {
+      id: 'kyc', label: 'KYC (Individual)',
+      icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0" /></svg>,
+    },
+    {
+      id: 'kyb', label: 'KYB (Business)',
+      icon: <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" /></svg>,
+    },
+  ];
+
+  // 'under_review' is intentionally not offered here — the backend's verification
+  // stats only track pending/approved/rejected, and filtering by it returns a
+  // 422 "The selected status is invalid" error. Re-add it if the backend adds support.
+  const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
+    { id: 'all',          label: 'All' },
+    { id: 'pending',      label: 'Pending' },
+    { id: 'approved',     label: 'Approved' },
+    { id: 'rejected',     label: 'Rejected' },
+  ];
+
+  const showingCount = pagination ? pagination.to - (pagination.from - 1) : verifications.length;
+
+  return (
+    <div className="flex h-screen bg-[#F8F9FA]" style={FONT}>
+      <Sidebar />
+
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+
+        {/* ── Page header */}
+        <div className="bg-white border-b border-gray-200 px-8 py-5 flex-shrink-0">
+          <DashboardHeader
+            title="KYC/KYB Verification"
+            subtitle="Review and approve customer and business verifications"
+          />
+        </div>
+
+        {/* ── Filter bar */}
+        <div className="bg-white border-b border-gray-100 px-8 py-4 flex-shrink-0">
+          <div className="flex items-start justify-between">
+            {/* Type filters */}
+            <div className="flex flex-col gap-2">
+              <span className="text-sm text-gray-500">Type</span>
+              <div className="flex items-center gap-1.5 p-1 bg-white">
+                {TYPE_FILTERS.map((f) => (
+                  <FilterPill key={f.id} active={typeFilter === f.id} onClick={() => { setTypeFilter(f.id); setCurrentPage(1); }}>
+                    {f.icon}
+                    {f.label}
+                  </FilterPill>
+                ))}
+              </div>
+            </div>
+
+            {/* Status filters */}
+            <div className="flex flex-col gap-2">
+              <span className="text-sm text-gray-500">Status</span>
+              <div className="flex items-center gap-1.5 p-1 bg-white">
+                {STATUS_FILTERS.map((f) => (
+                  <FilterPill key={f.id} active={statusFilter === f.id} onClick={() => { setStatusFilter(f.id); setCurrentPage(1); }}>
+                    {f.label}
+                  </FilterPill>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* "Showing X applications" — immediately under the tags, full width */}
+          <div className="rounded-lg px-4 py-2.5 mt-3" style={{ backgroundColor: '#F5FCF7' }}>
+            <p className="text-sm" style={{ color: '#1A1D1F' }}>
+              {isLoading ? 'Loading...' : `Showing ${pagination?.total ?? verifications.length} applications`}
+            </p>
+          </div>
+        </div>
+
+        {/* ── Scrollable content */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="px-8 py-6 space-y-3">
+
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl mb-2">
+                <p className="text-sm text-red-600">{error}</p>
+              </div>
+            )}
+            {actionError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl mb-2">
+                <p className="text-sm text-red-600">{actionError}</p>
+              </div>
+            )}
+
+            {/* Outer #F8F9FA frame holding the verification list */}
+            <div style={{ backgroundColor: '#F8F9FA', border: '1.05px solid #E1E4E6', borderRadius: 16, paddingTop: 16, paddingBottom: 16, paddingLeft: 12, paddingRight: 12 }}>
+
+            {/* Verification cards */}
+            {isLoading ? (
+              <div className="space-y-3">
+                {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-2xl" />)}
+              </div>
+            ) : verifications.length === 0 ? (
+              <div className="bg-white rounded-2xl p-12 text-center">
+                <p className="text-gray-400 text-sm">No verifications found</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {verifications.map((v) => (
+                  <div
+                    key={`${v.type}-${getVerificationId(v)}`}
+                    className="bg-white rounded-2xl px-6 py-5 flex items-center justify-between"
+                  >
+                    {/* Left — avatar + info */}
+                    <div className="flex items-start gap-4 min-w-0">
+                      <VerificationAvatar v={v} />
+                      <div className="min-w-0">
+                        {/* Name + risk badge */}
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <h3 className="text-base font-bold text-gray-900">{getDisplayName(v)}</h3>
+                          <RiskBadge status={v.status} />
+                        </div>
+                        {/* Email */}
+                        <p className="text-sm text-gray-400 mb-2">{v.user?.email ?? '—'}</p>
+                        {/* Meta row */}
+                        <div className="flex items-center gap-4 flex-wrap">
+                          <span className="flex items-center gap-1 text-xs text-gray-400">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25" />
+                            </svg>
+                            {v.documents?.length ?? 0} documents
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            ID: {v.type.toUpperCase()}-{String(getVerificationId(v)).padStart(3, '0')}
+                          </span>
+                          {((v as any).country ?? (v as KYBVerification).country) && (
+                            <span className="text-xs text-gray-400">
+                              Country: {(v as any).country ?? (v as KYBVerification).country}
+                            </span>
+                          )}
+                          <span className="text-xs text-gray-400">
+                            Submitted: {formatDate(v.submittedAt)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right — status badge + Review button */}
+                    <div className="flex items-center gap-3 flex-shrink-0 ml-6">
+                      <StatusBadge status={v.status} />
+                      <button
+                        onClick={() => { setActionError(null); setSelectedVerification(v); }}
+                        className="flex items-center gap-1.5 px-4 py-2 text-white rounded-xl text-sm font-semibold transition-colors hover:opacity-90"
+                        style={{ backgroundColor: '#009F51' }}
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Review
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            </div>
+
+            {/* Pagination — "Showing X to Y of Z results" left, page numbers right */}
+            {!isLoading && verifications.length > 0 && (
+              <div className="flex items-center justify-between pt-4">
+                <p className="text-sm text-gray-500">
+                  Showing {pagination?.from ?? 1} to {pagination?.to ?? verifications.length} of {(pagination?.total ?? 0).toLocaleString()} results
+                </p>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="w-8 h-8 flex items-center justify-center border border-gray-200 rounded-full hover:bg-gray-50 disabled:opacity-40 text-gray-600"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                    </svg>
+                  </button>
+                  {pageNumbers.map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setCurrentPage(p)}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg text-sm font-medium transition-colors"
+                      style={currentPage === p ? { backgroundColor: '#009F51', color: '#ffffff' } : { border: '1px solid #E5E7EB', color: '#4B5563' }}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                  {totalPages > 5 && currentPage < totalPages - 2 && (
+                    <>
+                      <span className="w-8 h-8 flex items-center justify-center text-gray-400 text-sm">…</span>
+                      <button
+                        onClick={() => setCurrentPage(totalPages)}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50"
+                      >
+                        {totalPages}
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="w-8 h-8 flex items-center justify-center border border-gray-200 rounded-full hover:bg-gray-50 disabled:opacity-40 text-gray-600"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Review modal */}
+      {selectedVerification && (
+        <ReviewModal
+          verification={selectedVerification}
+          onClose={() => setSelectedVerification(null)}
+          onApprove={handleApprove}
+          onReject={handleReject}
+          onResubmit={handleResubmit}
+          isActing={isActing}
+        />
+      )}
+    </div>
+  );
+}
+
+export default function KYCVerificationPage() {
+  return (
+    <Suspense fallback={null}>
+      <KYCVerificationPageInner />
+    </Suspense>
+  );
+}
