@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { useAuthStore } from '@/store/authStore';
@@ -16,7 +16,11 @@ import { PasswordField } from '@/components/auth/PasswordField';
 export default function LoginPage() {
   const router = useRouter();
   const { handleLogin, handleTwoFactorLogin } = useAuth();
-  const { isLoading, error } = useAuthStore();
+  const { isAuthenticated, isLoading, error } = useAuthStore();
+
+  useEffect(() => {
+    if (isAuthenticated) router.replace('/dashboard');
+  }, [isAuthenticated, router]);
 
   const [formData, setFormData] = useState<LoginInput>({
     email: '',

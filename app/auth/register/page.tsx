@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Eye, EyeOff } from 'lucide-react';
@@ -14,7 +14,11 @@ import { frontendConfig } from '@/config/env';
 export default function RegisterPage() {
   const router = useRouter();
   const { handleRegister } = useAuth();
-  const { isLoading, error } = useAuthStore();
+  const { isAuthenticated, isLoading, error } = useAuthStore();
+
+  useEffect(() => {
+    if (isAuthenticated) router.replace('/dashboard');
+  }, [isAuthenticated, router]);
   const [formData, setFormData] = useState<RegisterInput>({ registrationCode: '', email: '', password: '', confirmPassword: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);

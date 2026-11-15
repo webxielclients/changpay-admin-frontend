@@ -1,14 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { authApi } from '@/lib/api/client';
+import { useAuthStore } from '@/store/authStore';
 
 type Step = 'email' | 'code' | 'factor' | 'password';
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
+  const { isAuthenticated } = useAuthStore();
   const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -20,6 +22,10 @@ export default function ForgotPasswordPage() {
   const [confirmation, setConfirmation] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (isAuthenticated) router.replace('/dashboard');
+  }, [isAuthenticated, router]);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true); setError('');

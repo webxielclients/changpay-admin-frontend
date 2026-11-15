@@ -2112,6 +2112,16 @@ export const transactionsApi = {
       { method: 'POST', body: JSON.stringify({ action, resolution }) },
     ),
 
+  getDisputeTrace: (id: string | number) =>
+    authedRequest<{ status: boolean; message: string; data: unknown }>(
+      `/disputes/${requireIdentifier(id, 'dispute')}/trace`,
+    ),
+
+  getDisputeAudit: (id: string | number, page = 1) =>
+    authedRequest<{ status: boolean; message: string; data: unknown }>(
+      `/disputes/${requireIdentifier(id, 'dispute')}/audit?page=${page}`,
+    ),
+
   downloadReceipt: async (id: string | number) => {
     const storeToken = useAuthStore.getState().token;
     const token = storeToken ?? getAdminSessionToken();

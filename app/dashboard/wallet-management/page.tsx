@@ -12,6 +12,7 @@ type MainTab       = 'overview' | 'currency-wallets' | 'in-app-transfers' | 'led
 type CurrencyType  = 'USD' | 'NGN' | 'YUAN';
 type LedgerAction  = 'all' | 'debit' | 'credit' | 'hold' | 'release';
 type TopupCurrency = 'all' | 'USD' | 'NGN';
+type TransferAction = { transaction: Transaction; action: 'review' | 'release' | 'reverse' } | null;
 
 const FONT = { fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif" };
 
@@ -411,6 +412,9 @@ export default function WalletManagementPage() {
   const [loadingTopups,       setLoadingTopups]       = useState(false);
   const [loadingLedger,       setLoadingLedger]       = useState(false);
   const [error,               setError]               = useState<string | null>(null);
+  const [transferAction,      setTransferAction]      = useState<TransferAction>(null);
+  const [transferReason,      setTransferReason]      = useState('');
+  const [submittingTransfer,  setSubmittingTransfer]  = useState(false);
 
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -509,6 +513,23 @@ export default function WalletManagementPage() {
       setError(err instanceof Error ? err.message : 'Failed to load in-app transfers');
     } finally { setLoadingTransfers(false); }
   }, [selectedCurrency]);
+
+  const submitTransferAction = async () => {
+    if (!transferAction || !transferReason.trim()) return;
+    setSubmittingTransfer(true);
+    try {
+      const identifier = transferAction.transaction.publicId ?? transferAction.transaction.id;
+      if (transferAction.action === 'review') await transactionsApi.disputeTransfer(identifier, transferReason.trim());
+      else await transactionsApi.resolveTransferDispute(identifier, transferAction.action, transferReason.trim());
+      setTransferAction(null);
+      setTransferReason('');
+      await fetchTransfers(transferPage);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to update transfer');
+    } finally {
+      setSubmittingTransfer(false);
+    }
+  };
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
 
@@ -745,13 +766,17 @@ export default function WalletManagementPage() {
             <div className="p-8 space-y-5">
               <div className="flex items-center justify-between">
                 <div><h2 className="text-lg font-semibold text-gray-900">In-App Transfers</h2><p className="text-sm text-gray-500">Review transfers across the selected currency wallet.</p></div>
-                <select value={selectedCurrency} onChange={(e) => { setSelectedCurrency(e.target.value as CurrencyType); setTransferPage(1); }} className="rounded-full border border-gray-200 px-4 py-2 text-sm">
-                  <option value="NGN">NGN</option><option value="USD">USD</option><option value="YUAN">YUAN</option>
-                </select>
+                <div className="flex gap-2 rounded-xl bg-gray-50 p-1">
+                  {(['USD', 'NGN', 'YUAN'] as CurrencyType[]).map((currency) => (
+                    <button key={currency} onClick={() => { setSelectedCurrency(currency); setTransferPage(1); }} className={`rounded-lg px-4 py-2 text-sm font-semibold ${selectedCurrency === currency ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500'}`}>
+                      {currency}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="overflow-x-auto rounded-xl border border-gray-100">
                 <table className="w-full text-left"><thead className="bg-gray-50 text-xs uppercase text-gray-500"><tr><th className="px-4 py-3">Reference</th><th className="px-4 py-3">Sender</th><th className="px-4 py-3">Destination</th><th className="px-4 py-3">Amount</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr></thead>
-                  <tbody>{loadingTransfers ? <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">Loading transfers…</td></tr> : transfers.filter((tx) => tx.direction !== 'credit').map((tx) => <tr key={String(tx.publicId ?? tx.id)} className="border-t border-gray-100 text-sm"><td className="px-4 py-3 font-mono">{tx.reference}</td><td className="px-4 py-3">{tx.user ? `${tx.user.firstName} ${tx.user.lastName}` : '—'}</td><td className="px-4 py-3">{tx.destination?.name ?? tx.destination?.changpayId ?? '—'}</td><td className="px-4 py-3">{tx.currency} {tx.amount}</td><td className="px-4 py-3"><TxBadge status={tx.holdStatus === 'active' ? 'On hold' : tx.status === 'pending' ? 'Processing' : tx.status.charAt(0).toUpperCase() + tx.status.slice(1)} /></td><td className="px-4 py-3"><div className="flex gap-2">{tx.holdStatus === 'active' ? <><button onClick={async () => { const resolution = window.prompt('Release reason:'); if (!resolution) return; try { await transactionsApi.resolveTransferDispute(tx.publicId ?? tx.id, 'release', resolution); await fetchTransfers(transferPage); } catch (err) { setError(err instanceof Error ? err.message : 'Unable to release transfer'); } }} className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">Release</button><button onClick={async () => { const resolution = window.prompt('Reverse reason:'); if (!resolution) return; try { await transactionsApi.resolveTransferDispute(tx.publicId ?? tx.id, 'reverse', resolution); await fetchTransfers(transferPage); } catch (err) { setError(err instanceof Error ? err.message : 'Unable to reverse transfer'); } }} className="rounded-full bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700">Reverse</button></> : <button onClick={async () => { const reason = window.prompt('Reason for placing this transfer under review:'); if (!reason) return; try { await transactionsApi.disputeTransfer(tx.publicId ?? tx.id, reason); await fetchTransfers(transferPage); } catch (err) { setError(err instanceof Error ? err.message : 'Unable to place transfer under review'); } }} className="rounded-full bg-orange-50 px-3 py-1.5 text-xs font-medium text-orange-700">Review / Hold</button>}</div></td></tr>)}</tbody>
+                  <tbody>{loadingTransfers ? <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">Loading transfers…</td></tr> : transfers.filter((tx) => tx.direction !== 'credit').map((tx) => <tr key={String(tx.publicId ?? tx.id)} className="border-t border-gray-100 text-sm"><td className="px-4 py-3 font-mono">{tx.reference}</td><td className="px-4 py-3">{tx.user ? `${tx.user.firstName} ${tx.user.lastName}` : '—'}</td><td className="px-4 py-3">{tx.destination?.name ?? tx.destination?.changpayId ?? '—'}</td><td className="px-4 py-3">{tx.currency} {tx.amount}</td><td className="px-4 py-3"><TxBadge status={tx.holdStatus === 'active' ? 'On hold' : tx.status === 'pending' ? 'Processing' : tx.status.charAt(0).toUpperCase() + tx.status.slice(1)} /></td><td className="px-4 py-3"><div className="flex gap-2">{tx.holdStatus === 'active' ? <><button onClick={() => setTransferAction({ transaction: tx, action: 'release' })} className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">Release</button><button onClick={() => setTransferAction({ transaction: tx, action: 'reverse' })} className="rounded-full bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700">Reverse</button></> : <button onClick={() => setTransferAction({ transaction: tx, action: 'review' })} className="rounded-full bg-orange-50 px-3 py-1.5 text-xs font-medium text-orange-700">Review / Hold</button>}</div></td></tr>)}</tbody>
                 </table>
               </div>
               <Pagination currentPage={transferPage} totalPages={transferMeta?.last_page ?? 1} onChange={setTransferPage} loading={loadingTransfers} from={transferMeta?.from ?? undefined} to={transferMeta?.to ?? undefined} total={transferMeta?.total} />
@@ -1071,6 +1096,16 @@ export default function WalletManagementPage() {
           onToggleLock={handleToggleLock}
           toggling={togglingId === viewingWallet.id}
         />
+      )}
+      {transferAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <h2 className="text-lg font-semibold text-gray-900">{transferAction.action === 'review' ? 'Place transfer under review' : transferAction.action === 'release' ? 'Release held transfer' : 'Reverse held transfer'}</h2>
+            <p className="mt-1 text-sm text-gray-500">A reason is required and will be kept in the audit trail.</p>
+            <textarea value={transferReason} onChange={(event) => setTransferReason(event.target.value)} className="mt-4 min-h-28 w-full rounded-xl border border-gray-200 p-3 text-sm outline-none focus:border-emerald-500" placeholder="Enter the reason" />
+            <div className="mt-4 flex justify-end gap-3"><button onClick={() => { setTransferAction(null); setTransferReason(''); }} className="rounded-full border border-gray-200 px-4 py-2 text-sm">Cancel</button><button disabled={!transferReason.trim() || submittingTransfer} onClick={() => void submitTransferAction()} className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{submittingTransfer ? 'Submitting…' : 'Submit'}</button></div>
+          </div>
+        </div>
       )}
     </div>
   );
