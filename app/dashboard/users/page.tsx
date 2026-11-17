@@ -3,8 +3,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
-import { dashboardApi, usersApi } from '@/lib/api/client';
-import type { AdminUserRecord, MetaPaginatedResponse } from '@/lib/api/client';
+import { dashboardApi, kycApi, usersApi } from '@/lib/api/client';
+import type { AdminUserRecord, BulkVerificationReminderSummary, MetaPaginatedResponse, VerificationReminderType } from '@/lib/api/client';
 import { mergeStatusRecord } from '@/lib/api/merge-status-record';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
@@ -164,6 +164,10 @@ export default function UsersPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [kycFilter, setKycFilter] = useState('');
   const [togglingId, setTogglingId] = useState<string | number | null>(null);
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [selectedReminderTypes, setSelectedReminderTypes] = useState<VerificationReminderType[]>(['ngn_kyc', 'bridge_kyc']);
+  const [isSendingReminders, setIsSendingReminders] = useState(false);
+  const [reminderSummary, setReminderSummary] = useState<BulkVerificationReminderSummary | null>(null);
   const [overviewStats, setOverviewStats] = useState<{ total: number; active: number; verified: number; pending: number } | null>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -188,12 +192,72 @@ export default function UsersPage() {
 
   const handleSearch = (val: string) => {
     setSearch(val);
+    setSelectedUserIds([]);
+    setReminderSummary(null);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
     searchTimeout.current = setTimeout(() => { setCurrentPage(1); fetchUsers(1, val, statusFilter, kycFilter); }, 400);
   };
 
-  const handleStatusFilter = (val: string) => { setStatusFilter(val); setCurrentPage(1); };
-  const handleKycFilter = (val: string) => { setKycFilter(val); setCurrentPage(1); };
+  const handleStatusFilter = (val: string) => { setStatusFilter(val); setCurrentPage(1); setSelectedUserIds([]); setReminderSummary(null); };
+  const handleKycFilter = (val: string) => { setKycFilter(val); setCurrentPage(1); setSelectedUserIds([]); setReminderSummary(null); };
+
+  const currentPageUserIds = users.map((user) => String(user.publicId ?? user.id));
+  const allCurrentPageSelected = currentPageUserIds.length > 0 && currentPageUserIds.every((id) => selectedUserIds.includes(id));
+
+  const toggleUserSelection = (userId: string) => {
+    setReminderSummary(null);
+    setError(null);
+    if (selectedUserIds.includes(userId)) {
+      setSelectedUserIds(selectedUserIds.filter((id) => id !== userId));
+      return;
+    }
+    if (selectedUserIds.length >= 100) {
+      setError('You can select up to 100 users for one reminder request.');
+      return;
+    }
+    setSelectedUserIds([...selectedUserIds, userId]);
+  };
+
+  const toggleCurrentPageSelection = () => {
+    setReminderSummary(null);
+    setError(null);
+    if (allCurrentPageSelected) {
+      setSelectedUserIds(selectedUserIds.filter((id) => !currentPageUserIds.includes(id)));
+      return;
+    }
+    const next = Array.from(new Set([...selectedUserIds, ...currentPageUserIds]));
+    if (next.length > 100) {
+      setError('You can select up to 100 users for one reminder request.');
+      return;
+    }
+    setSelectedUserIds(next);
+  };
+
+  const toggleReminderType = (type: VerificationReminderType) => {
+    setSelectedReminderTypes((current) => current.includes(type)
+      ? current.filter((selected) => selected !== type)
+      : [...current, type]);
+  };
+
+  const handleSendBulkReminders = async () => {
+    if (selectedUserIds.length === 0 || selectedReminderTypes.length === 0) return;
+    try {
+      setIsSendingReminders(true);
+      setError(null);
+      setReminderSummary(null);
+      const response = await kycApi.sendBulkReminders({ user_ids: selectedUserIds, types: selectedReminderTypes });
+      if (response.status) {
+        setReminderSummary(response.data);
+        setSelectedUserIds([]);
+      } else {
+        setError(response.message || 'Failed to send verification reminders.');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to send verification reminders.');
+    } finally {
+      setIsSendingReminders(false);
+    }
+  };
 
   const handleStatusChange = async (user: AdminUserRecord, next: string) => {
     const current = user.accountStatus ?? user.account_status ?? ((user.isActive ?? user.is_active) ? 'active' : 'disabled');
@@ -265,6 +329,43 @@ export default function UsersPage() {
             </div>
           </div>
 
+          <section className="flex flex-wrap items-center gap-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3" aria-label="Bulk verification reminders">
+            <span className="text-sm font-semibold text-gray-700">{selectedUserIds.length} selected</span>
+            <fieldset className="flex flex-wrap items-center gap-4" disabled={isSendingReminders}>
+              <legend className="sr-only">Reminder types</legend>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" checked={selectedReminderTypes.includes('ngn_kyc')} onChange={() => toggleReminderType('ngn_kyc')} />
+                NGN KYC
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" checked={selectedReminderTypes.includes('bridge_kyc')} onChange={() => toggleReminderType('bridge_kyc')} />
+                Bridge verification
+              </label>
+            </fieldset>
+            <button type="button" onClick={() => void handleSendBulkReminders()} disabled={isSendingReminders || selectedUserIds.length === 0 || selectedReminderTypes.length === 0}
+              className="ml-auto rounded-full px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" style={{ backgroundColor: '#009F51' }}>
+              {isSendingReminders ? 'Sending reminders…' : 'Send reminders'}
+            </button>
+          </section>
+          <p className="text-xs text-gray-500">Only selected users with the chosen verification still pending will receive a reminder. If both are pending, they receive one combined notification.</p>
+          {reminderSummary && (
+            <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              Sent {reminderSummary.reminders_sent} reminder type(s) to {reminderSummary.sent} user(s). {reminderSummary.already_sent} already reminded, {reminderSummary.not_pending} not pending, {reminderSummary.failed} failed.
+              <details className="mt-2 text-emerald-900">
+                <summary className="cursor-pointer font-semibold">View per-user results</summary>
+                <ul className="mt-2 space-y-1">
+                  {reminderSummary.results.map((result) => (
+                    <li key={result.user_id}>
+                      {result.email ?? result.user_id}: {result.status.replaceAll('_', ' ')}
+                      {result.sent_types.length > 0 && ` (${result.sent_types.join(', ')})`}
+                      {result.already_sent_types?.length ? `, already sent: ${result.already_sent_types.join(', ')}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </div>
+          )}
+
           {/* Stat cards — match Figma exactly */}
           <div className="grid grid-cols-4 gap-4">
             {[
@@ -284,9 +385,12 @@ export default function UsersPage() {
           {/* Table — Figma: gray thead bg, border, rounded container */}
           <div className="rounded-xl border border-gray-200 overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[1300px]">
+              <table className="w-full text-sm min-w-[1360px]">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="px-4 py-3 text-left" aria-label="Select users">
+                      <input type="checkbox" aria-label="Select all users on this page" checked={allCurrentPageSelected} onChange={toggleCurrentPageSelection} disabled={isLoading || users.length === 0} />
+                    </th>
                     {['User','Status','KYC','USD Balance','NGN Balance','YUAN Balance','Last Login','Action'].map(h => (
                       <th key={h} className="px-4 py-3 text-left whitespace-nowrap first:pl-6 last:pr-6"
                         style={{ ...FONT, color: '#6A7377', fontWeight: 400, fontSize: '14.67px', lineHeight: '150%', letterSpacing: '0.02em' }}>
@@ -300,14 +404,18 @@ export default function UsersPage() {
                   {isLoading ? (
                     [...Array(8)].map((_, i) => (
                       <tr key={i}>
-                        {[...Array(8)].map((_, j) => <td key={j} className="px-4 py-3.5"><Sk/></td>)}
+                        {[...Array(9)].map((_, j) => <td key={j} className="px-4 py-3.5"><Sk/></td>)}
                       </tr>
                     ))
                   ) : users.length === 0 ? (
-                    <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">No users found</td></tr>
+                    <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-gray-400">No users found</td></tr>
                   ) : users.map(user => {
+                    const reminderUserId = String(user.publicId ?? user.id);
                     return (
                     <tr key={user.id} className="hover:bg-gray-50/60 transition-colors">
+                      <td className="px-4 py-3.5 text-center">
+                        <input type="checkbox" aria-label={`Select ${user.email} for verification reminder`} checked={selectedUserIds.includes(reminderUserId)} onChange={() => toggleUserSelection(reminderUserId)} />
+                      </td>
                       {/* User */}
                       <td className="px-4 py-3.5 pl-6 whitespace-nowrap">
                         <div className="flex items-center gap-2.5">

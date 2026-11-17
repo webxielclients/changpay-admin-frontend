@@ -1354,6 +1354,24 @@ export interface VerificationStats {
   kyb: { total: number; pending: number; approved: number; rejected: number };
 }
 
+export type VerificationReminderType = 'ngn_kyc' | 'bridge_kyc';
+
+export interface BulkVerificationReminderSummary {
+  requested: number;
+  sent: number;
+  reminders_sent: number;
+  already_sent: number;
+  not_pending: number;
+  failed: number;
+  results: {
+    user_id: string;
+    email?: string;
+    status: 'sent' | 'partially_sent' | 'already_sent' | 'not_pending' | 'not_found' | 'failed';
+    sent_types: VerificationReminderType[];
+    already_sent_types?: VerificationReminderType[];
+  }[];
+}
+
 // ─── KYC/KYB API ─────────────────────────────────────────────────────────────
 
 export const kycApi = {
@@ -1386,6 +1404,13 @@ export const kycApi = {
   sendReminder: (payload: { email: string; type: 'ngn_kyc' | 'bridge_kyc' }) =>
     authedRequest<{ status: boolean; message: string; data: unknown }>(
       '/verifications/reminder',
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
+  /** POST /verifications/reminders/bulk — send one combined notification per selected user */
+  sendBulkReminders: (payload: { user_ids: string[]; types: VerificationReminderType[] }) =>
+    authedRequest<{ status: boolean; message: string; data: BulkVerificationReminderSummary }>(
+      '/verifications/reminders/bulk',
       { method: 'POST', body: JSON.stringify(payload) }
     ),
 

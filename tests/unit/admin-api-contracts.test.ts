@@ -46,6 +46,25 @@ describe('admin feature API contracts', () => {
     fetchMock.mockRestore();
   });
 
+  it('sends bulk verification reminder types and selected public user IDs', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      status: true,
+      message: 'Verification reminders processed.',
+      data: { requested: 1, sent: 1, reminders_sent: 2, already_sent: 0, not_pending: 0, failed: 0, results: [] },
+    }), { status: 200 }));
+
+    await kycApi.sendBulkReminders({
+      user_ids: ['user-public-1'],
+      types: ['ngn_kyc', 'bridge_kyc'],
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/proxy/verifications/reminders/bulk', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ user_ids: ['user-public-1'], types: ['ngn_kyc', 'bridge_kyc'] }),
+    }));
+    fetchMock.mockRestore();
+  });
+
   it('keeps dashboard, FX, transactions, banks, roles, support, and promotions connected', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ status: true, message: 'ok', data: {} }), { status: 200 }));
 
