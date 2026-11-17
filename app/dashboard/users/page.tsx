@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store/authStore';
 import { dashboardApi, usersApi } from '@/lib/api/client';
 import type { AdminUserRecord, MetaPaginatedResponse } from '@/lib/api/client';
+import { mergeStatusRecord } from '@/lib/api/merge-status-record';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
 import Image from 'next/image';
@@ -200,7 +201,7 @@ export default function UsersPage() {
     try {
       setTogglingId(Number(user.id));
       const res = await usersApi.updateStatus(user.id, next);
-      if (res.status) setUsers(prev => prev.map(u => u.id === user.id ? res.data : u));
+      if (res.status) setUsers(prev => prev.map(u => u.id === user.id ? mergeStatusRecord(u, res.data) : u));
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed'); }
     finally { setTogglingId(null); }
   };

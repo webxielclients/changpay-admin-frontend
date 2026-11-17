@@ -1382,6 +1382,13 @@ export const kycApi = {
       '/verifications/stats'
     ),
 
+  /** POST /verifications/reminder — send an NGN KYC or Bridge verification reminder */
+  sendReminder: (payload: { email: string; type: 'ngn_kyc' | 'bridge_kyc' }) =>
+    authedRequest<{ status: boolean; message: string; data: unknown }>(
+      '/verifications/reminder',
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
+
   /** GET /verifications/kyc/{id} */
   getKYCDetail: (id: string | number) =>
     authedRequest<{ status: boolean; message: string; data: KYCVerification }>(

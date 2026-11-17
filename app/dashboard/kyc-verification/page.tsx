@@ -363,6 +363,11 @@ function KYCVerificationPageInner() {
   const [selectedVerification, setSelectedVerification] = useState<AnyVerification | null>(null);
   const [isActing,             setIsActing]             = useState(false);
   const [actionError,          setActionError]          = useState<string | null>(null);
+  const [reminderEmail,        setReminderEmail]        = useState('');
+  const [reminderType,         setReminderType]         = useState<'ngn_kyc' | 'bridge_kyc'>('ngn_kyc');
+  const [isSendingReminder,    setIsSendingReminder]    = useState(false);
+  const [reminderMessage,      setReminderMessage]      = useState<string | null>(null);
+  const [reminderError,        setReminderError]        = useState<string | null>(null);
 
   // Guards against out-of-order responses: if the user switches filters quickly,
   // an older, slower request could resolve after a newer one and overwrite it
@@ -416,6 +421,23 @@ function KYCVerificationPageInner() {
       setLoadingStats(false);
     }
   }, []);
+
+  const handleSendReminder = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsSendingReminder(true);
+    setReminderMessage(null);
+    setReminderError(null);
+    try {
+      const response = await kycApi.sendReminder({ email: reminderEmail.trim(), type: reminderType });
+      if (!response.status) throw new Error(response.message || 'Failed to send verification reminder.');
+      setReminderMessage(response.message || 'Verification reminder sent.');
+      setReminderEmail('');
+    } catch (err) {
+      setReminderError(err instanceof Error ? err.message : 'Failed to send verification reminder.');
+    } finally {
+      setIsSendingReminder(false);
+    }
+  };
 
   useEffect(() => { if (isAuthenticated) fetchStats(); }, [isAuthenticated, fetchStats]);
   useEffect(() => {
@@ -521,6 +543,23 @@ function KYCVerificationPageInner() {
             title="KYC/KYB Verification"
             subtitle="Review and approve customer and business verifications"
           />
+          <form onSubmit={handleSendReminder} className="mt-4 flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4" aria-label="Send verification reminder">
+            <div className="min-w-[220px] flex-1">
+              <label htmlFor="reminder-email" className="mb-1 block text-xs font-semibold text-gray-600">Customer email</label>
+              <input id="reminder-email" type="email" required value={reminderEmail} onChange={(event) => setReminderEmail(event.target.value)} placeholder="customer@example.com" className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100" />
+            </div>
+            <div className="min-w-[200px]">
+              <label htmlFor="reminder-type" className="mb-1 block text-xs font-semibold text-gray-600">Reminder type</label>
+              <select id="reminder-type" value={reminderType} onChange={(event) => setReminderType(event.target.value as 'ngn_kyc' | 'bridge_kyc')} className="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100">
+                <option value="ngn_kyc">NGN KYC</option>
+                <option value="bridge_kyc">Bridge verification</option>
+              </select>
+            </div>
+            <button type="submit" disabled={isSendingReminder || !reminderEmail.trim()} className="h-10 rounded-lg px-4 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50" style={{ backgroundColor: '#009F51' }}>
+              {isSendingReminder ? 'Sending…' : 'Send reminder'}
+            </button>
+            {(reminderMessage || reminderError) && <p role={reminderError ? 'alert' : 'status'} className={`w-full text-sm ${reminderError ? 'text-red-600' : 'text-green-700'}`}>{reminderError ?? reminderMessage}</p>}
+          </form>
         </div>
 
         {/* ── Filter bar */}

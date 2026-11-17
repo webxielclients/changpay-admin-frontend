@@ -30,6 +30,22 @@ describe('admin feature API contracts', () => {
     fetchMock.mockRestore();
   });
 
+  it('sends manual verification reminders to the admin reminder endpoint', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      status: true,
+      message: 'Verification reminder sent.',
+      data: {},
+    }), { status: 200 }));
+
+    await kycApi.sendReminder({ email: 'pending@example.test', type: 'bridge_kyc' });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/proxy/verifications/reminder', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ email: 'pending@example.test', type: 'bridge_kyc' }),
+    }));
+    fetchMock.mockRestore();
+  });
+
   it('keeps dashboard, FX, transactions, banks, roles, support, and promotions connected', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ status: true, message: 'ok', data: {} }), { status: 200 }));
 

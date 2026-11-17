@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/store/authStore';
 import { walletApi, transactionsApi } from '@/lib/api/client';
+import { mergeStatusRecord } from '@/lib/api/merge-status-record';
 import type { WalletStats, WalletRecord, CurrencyWalletData, ReconciliationStatus, TopupTransaction, LedgerEntry, Transaction } from '@/lib/api/client';
 import Sidebar from '@/components/Sidebar';
 import DashboardHeader from '@/components/DashboardHeader';
@@ -574,8 +575,8 @@ export default function WalletManagementPage() {
       }
       const res = await walletApi.updateStatus(wallet.id, wallet.isLocked ? 'active' : 'frozen', note);
       if (res.status) {
-        setWallets((prev) => prev.map((w) => w.id === wallet.id ? res.data : w));
-        setViewingWallet((prev) => prev && prev.id === wallet.id ? res.data : prev);
+        setWallets((prev) => prev.map((w) => w.id === wallet.id ? mergeStatusRecord(w, res.data) : w));
+        setViewingWallet((prev) => prev && prev.id === wallet.id ? mergeStatusRecord(prev, res.data) : prev);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to toggle wallet lock');
